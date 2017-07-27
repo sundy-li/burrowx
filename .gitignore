@@ -1,0 +1,10 @@
+burrow-src
+Burrow
+.*.swp
+*.json
+!config
+log
+.idea
+Burrow.iml
+tmp
+vendor
