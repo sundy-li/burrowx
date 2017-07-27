@@ -53,10 +53,11 @@ func (i *Importer) start() {
 				"partition":      strconv.Itoa(int(msg.Partition)),
 				"cluster":        msg.Cluster,
 			}
+			//offset is the sql keyword, so we use offsize
 			fields := map[string]interface{}{
-				"offset":    msg.Offset,
-				"maxoffset": msg.MaxOffset,
-				"lag":       msg.Lag,
+				"offsize": msg.Offset,
+				"logsize": msg.MaxOffset,
+				"lag":     msg.Lag,
 			}
 
 			tm := time.Unix(msg.Timestamp/1000, 0)

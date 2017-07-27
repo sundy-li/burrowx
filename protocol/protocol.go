@@ -31,7 +31,7 @@ type PartitionLag struct {
 	MaxOffset int64
 	Offset    int64
 	Group     string
-	Lag       int
+	Lag       int64
 	Timestamp int64
 }
 

@@ -343,6 +343,14 @@ func (client *KafkaClient) RefreshConsumerOffset(msg *sarama.ConsumerMessage) {
 		if math.Abs(float64(lag.Timestamp-off.Timestamp)) <= 10*1000 {
 			//import the metrics
 			lag.MaxOffset = off.Offset
+			lag.Lag = lag.MaxOffset - lag.Offset
+
+			//could be possible by difftime
+			if lag.Lag < 0 {
+				lag.Lag = 0
+				lag.MaxOffset = lag.Offset
+			}
+
 			client.importer.saveMsg(lag)
 			log.Debug("Import Metric [%s,%s,%v]::OffsetAndMetadata[%v,%d,%v]\n", group, topic, partition, offset, msg.Offset, timestamp)
 		} else {
