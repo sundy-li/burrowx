@@ -1,9 +1,7 @@
-burrow-src
-Burrow
 .*.swp
 *.json
-!config
-log
+*.log
+
 .idea
 Burrow.iml
 tmp
