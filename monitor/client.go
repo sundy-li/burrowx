@@ -115,7 +115,7 @@ func (client *KafkaClient) Start() {
 	go func() {
 		defer client.wgProcessor.Done()
 		for msg := range client.messageChannel {
-			go client.RefreshConsumerOffset(msg)
+			client.RefreshConsumerOffset(msg)
 		}
 	}()
 	go func() {
@@ -154,8 +154,14 @@ func (client *KafkaClient) Start() {
 		client.wgFanIn.Add(2)
 		go func() {
 			defer client.wgFanIn.Done()
+			//20 pool per partition
+			var pool = make(chan struct{}, 20)
 			for msg := range pconsumer.Messages() {
-				client.messageChannel <- msg
+				pool <- struct{}{}
+				go func() {
+					client.messageChannel <- msg
+					<-pool
+				}()
 			}
 		}()
 		go func() {
