@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"math"
 	"strings"
 	"sync"
 	"time"
@@ -34,9 +33,6 @@ type KafkaClient struct {
 	brokerOffsetTicker *time.Ticker
 
 	importer *Importer
-
-	storeMapLock sync.RWMutex
-	stores       map[string]*protocol.PartitionOffset //topic => consumer => offset
 }
 
 type BrokerTopicRequest struct {
@@ -100,9 +96,7 @@ func NewKafkaClient(cfg *config.Config, cluster string) (*KafkaClient, error) {
 		topicMap:       make(map[string]int),
 		topicMapLock:   sync.RWMutex{},
 
-		importer:     importer,
-		stores:       make(map[string]*protocol.PartitionOffset),
-		storeMapLock: sync.RWMutex{},
+		importer: importer,
 	}
 
 	return client, nil
@@ -237,19 +231,15 @@ func (client *KafkaClient) getOffsets() error {
 					log.Warnf("Error in OffsetResponse for %s:%v from broker %v: %s", topic, partition, brokerId, offsetResponse.Err.Error())
 					continue
 				}
-				offset := &protocol.PartitionOffset{
+				offset := &protocol.PartitionOffsetLag{
 					Cluster:             client.cluster,
 					Topic:               topic,
 					Partition:           partition,
-					Offset:              offsetResponse.Offsets[0],
+					MaxOffset:           offsetResponse.Offsets[0],
 					Timestamp:           ts,
 					TopicPartitionCount: client.topicMap[topic],
 				}
-				// log.Debug("get offset from topic", topic, offset)
-				key := genKey(topic, int(partition))
-				client.storeMapLock.Lock()
-				client.stores[key] = offset
-				client.storeMapLock.Unlock()
+				client.importer.saveMsg(offset)
 			}
 		}
 	}
@@ -329,7 +319,7 @@ func (client *KafkaClient) RefreshConsumerOffset(msg *sarama.ConsumerMessage) {
 		return
 	}
 
-	lag := &protocol.PartitionLag{
+	lag := &protocol.PartitionOffsetLag{
 		Cluster:   client.cluster,
 		Topic:     topic,
 		Group:     group,
@@ -337,28 +327,7 @@ func (client *KafkaClient) RefreshConsumerOffset(msg *sarama.ConsumerMessage) {
 		Offset:    int64(offset),
 		Timestamp: int64(timestamp),
 	}
-
-	key := genKey(topic, int(partition))
-	if off, ok := client.stores[key]; ok {
-		if math.Abs(float64(lag.Timestamp-off.Timestamp)) <= 10*1000 {
-			//import the metrics
-			lag.MaxOffset = off.Offset
-			lag.Lag = lag.MaxOffset - lag.Offset
-
-			//could be possible by difftime
-			if lag.Lag < 0 {
-				lag.Lag = 0
-				lag.MaxOffset = lag.Offset
-			}
-
-			client.importer.saveMsg(lag)
-			log.Debug("Import Metric [%s,%s,%v]::OffsetAndMetadata[%v,%d,%v]\n", group, topic, partition, offset, msg.Offset, timestamp)
-		} else {
-			log.Debugf("Expired drop [%s,%s,%v]::OffsetAndMetadata[%v,%d,%v]\n", group, topic, partition, offset, msg.Offset, timestamp)
-		}
-	} else {
-		log.Warn("Error not found topic and partition for:", topic, partition)
-	}
+	client.importer.saveMsg(lag)
 	return
 }
 func readString(buf *bytes.Buffer) (string, error) {

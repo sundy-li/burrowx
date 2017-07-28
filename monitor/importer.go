@@ -12,7 +12,7 @@ import (
 )
 
 type Importer struct {
-	msgs chan *protocol.PartitionLag
+	msgs chan *protocol.PartitionOffsetLag
 	cfg  *config.Config
 
 	threshold int
@@ -22,7 +22,7 @@ type Importer struct {
 
 func NewImporter(cfg *config.Config) (i *Importer, err error) {
 	i = &Importer{
-		msgs:      make(chan *protocol.PartitionLag, 1000),
+		msgs:      make(chan *protocol.PartitionOffsetLag, 1000),
 		cfg:       cfg,
 		threshold: 10,
 		stopped:   make(chan struct{}),
@@ -40,6 +40,7 @@ func NewImporter(cfg *config.Config) (i *Importer, err error) {
 	return
 }
 
+//TODO CREATE DATABASE
 func (i *Importer) start() {
 	go func() {
 		bp, _ := client.NewBatchPoints(client.BatchPointsConfig{
@@ -47,28 +48,52 @@ func (i *Importer) start() {
 			Precision: "s",
 		})
 		for msg := range i.msgs {
-			tags := map[string]string{
-				"topic":          msg.Topic,
-				"consumer_group": msg.Group,
-				"partition":      strconv.Itoa(int(msg.Partition)),
-				"cluster":        msg.Cluster,
-			}
-			//offset is the sql keyword, so we use offsize
-			fields := map[string]interface{}{
-				"offsize": msg.Offset,
-				"logsize": msg.MaxOffset,
-				"lag":     msg.Lag,
+			if msg.Group != "" {
+				tags := map[string]string{
+					"topic":          msg.Topic,
+					"consumer_group": msg.Group,
+					"partition":      strconv.Itoa(int(msg.Partition)),
+					"cluster":        msg.Cluster,
+				}
+				//offset is the sql keyword, so we use offsize
+				fields := map[string]interface{}{
+					"offsize": msg.Offset,
+				}
+
+				tm := time.Unix(msg.Timestamp/1000, 0)
+				pt, err := client.NewPoint("consumer_metrics", tags, fields, tm)
+				if err != nil {
+					log.Error("error in add point ", err.Error())
+					continue
+				}
+				bp.AddPoint(pt)
+			} else {
+				tags := map[string]string{
+					"topic":     msg.Topic,
+					"partition": strconv.Itoa(int(msg.Partition)),
+					"cluster":   msg.Cluster,
+				}
+				//offset is the sql keyword, so we use offsize
+				fields := map[string]interface{}{
+					"logsize":         msg.MaxOffset,
+					"partition_count": msg.TopicPartitionCount,
+				}
+
+				tm := time.Unix(msg.Timestamp/1000, 0)
+				pt, err := client.NewPoint("topic_metrics", tags, fields, tm)
+				if err != nil {
+					log.Error("error in add point ", err.Error())
+					continue
+				}
+				bp.AddPoint(pt)
 			}
 
-			tm := time.Unix(msg.Timestamp/1000, 0)
-			pt, err := client.NewPoint(msg.Group, tags, fields, tm)
-			if err != nil {
-				log.Error("error in add point ", err.Error())
-				continue
-			}
-			bp.AddPoint(pt)
 			if len(bp.Points()) > i.threshold {
 				err := i.influxdb.Write(bp)
+				bp, _ = client.NewBatchPoints(client.BatchPointsConfig{
+					Database:  i.cfg.Influxdb.Db,
+					Precision: "s",
+				})
 				if err != nil {
 					log.Error("error in insert points ", err.Error())
 					continue
@@ -80,7 +105,7 @@ func (i *Importer) start() {
 
 }
 
-func (i *Importer) saveMsg(msg *protocol.PartitionLag) {
+func (i *Importer) saveMsg(msg *protocol.PartitionOffsetLag) {
 	i.msgs <- msg
 }
 
