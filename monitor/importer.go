@@ -1,18 +1,16 @@
 package monitor
 
 import (
-	"strconv"
 	"time"
 
 	client "github.com/influxdata/influxdb/client/v2"
 
 	log "github.com/cihub/seelog"
 	"github.com/sundy-li/burrowx/config"
-	"github.com/sundy-li/burrowx/protocol"
 )
 
 type Importer struct {
-	msgs chan *protocol.PartitionOffsetLag
+	msgs chan *ConsumerFullOffset
 	cfg  *config.Config
 
 	threshold int
@@ -22,7 +20,7 @@ type Importer struct {
 
 func NewImporter(cfg *config.Config) (i *Importer, err error) {
 	i = &Importer{
-		msgs:      make(chan *protocol.PartitionOffsetLag, 1000),
+		msgs:      make(chan *ConsumerFullOffset, 1000),
 		cfg:       cfg,
 		threshold: 10,
 		stopped:   make(chan struct{}),
@@ -48,46 +46,25 @@ func (i *Importer) start() {
 			Precision: "s",
 		})
 		for msg := range i.msgs {
-			if msg.Group != "" {
-				tags := map[string]string{
-					"topic":          msg.Topic,
-					"consumer_group": msg.Group,
-					"partition":      strconv.Itoa(int(msg.Partition)),
-					"cluster":        msg.Cluster,
-				}
-				//offset is the sql keyword, so we use offsize
-				fields := map[string]interface{}{
-					"offsize": msg.Offset,
-				}
-
-				tm := time.Unix(msg.Timestamp/1000, 0)
-				pt, err := client.NewPoint("consumer_metrics", tags, fields, tm)
-				if err != nil {
-					log.Error("error in add point ", err.Error())
-					continue
-				}
-				bp.AddPoint(pt)
-			} else {
-				tags := map[string]string{
-					"topic":     msg.Topic,
-					"partition": strconv.Itoa(int(msg.Partition)),
-					"cluster":   msg.Cluster,
-				}
-				//offset is the sql keyword, so we use offsize
-				fields := map[string]interface{}{
-					"logsize":         msg.MaxOffset,
-					"partition_count": msg.TopicPartitionCount,
-				}
-
-				tm := time.Unix(msg.Timestamp/1000, 0)
-				pt, err := client.NewPoint("topic_metrics", tags, fields, tm)
-				if err != nil {
-					log.Error("error in add point ", err.Error())
-					continue
-				}
-				bp.AddPoint(pt)
+			tags := map[string]string{
+				"topic":          msg.Topic,
+				"consumer_group": msg.Group,
+				"cluster":        msg.Cluster,
+			}
+			//offset is the sql keyword, so we use offsize
+			fields := map[string]interface{}{
+				"offsize": msg.Offset,
+				"logsize": msg.MaxOffset,
+				"lag":     msg.MaxOffset - msg.Offset,
 			}
 
+			tm := time.Unix(msg.Timestamp/1000, 0)
+			pt, err := client.NewPoint("consumer_metrics", tags, fields, tm)
+			if err != nil {
+				log.Error("error in add point ", err.Error())
+				continue
+			}
+			bp.AddPoint(pt)
 			if len(bp.Points()) > i.threshold {
 				err := i.influxdb.Write(bp)
 				bp, _ = client.NewBatchPoints(client.BatchPointsConfig{
@@ -105,7 +82,7 @@ func (i *Importer) start() {
 
 }
 
-func (i *Importer) saveMsg(msg *protocol.PartitionOffsetLag) {
+func (i *Importer) saveMsg(msg *ConsumerFullOffset) {
 	i.msgs <- msg
 }
 

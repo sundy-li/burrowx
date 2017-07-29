@@ -15,7 +15,6 @@ import (
 	"github.com/Shopify/sarama"
 	log "github.com/cihub/seelog"
 	"github.com/sundy-li/burrowx/config"
-	"github.com/sundy-li/burrowx/protocol"
 )
 
 type KafkaClient struct {
@@ -31,6 +30,12 @@ type KafkaClient struct {
 	topicMap           map[string]int
 	topicMapLock       sync.RWMutex
 	brokerOffsetTicker *time.Ticker
+
+	consumerOffsetMapLock sync.RWMutex
+	consumerOffset        map[string]map[int32]map[string]*ConsumerOffset //topic => partition => group => offset
+
+	topicOffsetMapLock sync.RWMutex
+	topicOffset        map[string][]*TopicPartitionOffset //topic => partition => offset
 
 	importer *Importer
 }
@@ -95,6 +100,13 @@ func NewKafkaClient(cfg *config.Config, cluster string) (*KafkaClient, error) {
 		wgProcessor:    sync.WaitGroup{},
 		topicMap:       make(map[string]int),
 		topicMapLock:   sync.RWMutex{},
+
+		//three map,holy shit
+		consumerOffset:        make(map[string]map[int32]map[string]*ConsumerOffset),
+		consumerOffsetMapLock: sync.RWMutex{},
+
+		topicOffset:        make(map[string][]*TopicPartitionOffset),
+		topicOffsetMapLock: sync.RWMutex{},
 
 		importer: importer,
 	}
@@ -225,21 +237,71 @@ func (client *KafkaClient) getOffsets() error {
 			return
 		}
 		ts := time.Now().Unix() * 1000
+
+		client.topicOffsetMapLock.Lock()
+		client.topicOffset = make(map[string][]*TopicPartitionOffset)
+		client.topicOffsetMapLock.Unlock()
 		for topic, partitions := range response.Blocks {
 			for partition, offsetResponse := range partitions {
 				if offsetResponse.Err != sarama.ErrNoError {
 					log.Warnf("Error in OffsetResponse for %s:%v from broker %v: %s", topic, partition, brokerId, offsetResponse.Err.Error())
 					continue
 				}
-				offset := &protocol.PartitionOffsetLag{
+				offset := &TopicPartitionOffset{
 					Cluster:             client.cluster,
 					Topic:               topic,
 					Partition:           partition,
-					MaxOffset:           offsetResponse.Offsets[0],
+					Offset:              offsetResponse.Offsets[0],
 					Timestamp:           ts,
 					TopicPartitionCount: client.topicMap[topic],
 				}
-				client.importer.saveMsg(offset)
+
+				client.topicOffsetMapLock.Lock()
+				client.topicOffset[offset.Topic] = append(client.topicOffset[offset.Topic], offset)
+				client.topicOffsetMapLock.Unlock()
+			}
+		}
+
+		for topic, offsets := range client.topicOffset {
+			result := make(map[string]*ConsumerFullOffset)
+			//foreach partition of this topic
+			for _, offset := range offsets {
+				if _, ok := client.consumerOffset[topic]; ok {
+					if _, ok := client.consumerOffset[topic][offset.Partition]; ok {
+						for consumer, consumerOffset := range client.consumerOffset[topic][offset.Partition] {
+							if _, ok := result[consumer]; !ok {
+								result[consumer] = &ConsumerFullOffset{
+									Cluster:        client.cluster,
+									Group:          consumer,
+									PartionMap:     make(map[int32]bool),
+									PartitionCount: offset.TopicPartitionCount,
+									Timestamp:      offset.Timestamp,
+								}
+							}
+							//judge time diff
+							if offset.Timestamp-consumerOffset.Timestamp <= 60*1000 {
+								if _, ok := result[consumer].PartionMap[offset.Partition]; !ok {
+									result[consumer].PartionMap[offset.Partition] = true
+									result[consumer].Offset += consumerOffset.Offset
+									result[consumer].MaxOffset += offset.Offset
+								}
+							} else {
+								//ingore
+								log.Debugf("Drop %s:%v offset by partion metric by time diff not match", topic, consumer)
+							}
+						}
+					} else {
+						log.Debugf("Drop %s:%d offset by partion metric match ", topic, offset.Partition)
+					}
+				} else {
+					//ignore
+				}
+			}
+			for consumer, consumerFullOffset := range result {
+				if len(consumerFullOffset.PartionMap) == consumerFullOffset.PartitionCount {
+					client.importer.saveMsg(consumerFullOffset)
+					log.Debugf("Saving %s:%v offset", topic, consumer)
+				}
 			}
 		}
 	}
@@ -319,7 +381,7 @@ func (client *KafkaClient) RefreshConsumerOffset(msg *sarama.ConsumerMessage) {
 		return
 	}
 
-	lag := &protocol.PartitionOffsetLag{
+	co := &ConsumerOffset{
 		Cluster:   client.cluster,
 		Topic:     topic,
 		Group:     group,
@@ -327,7 +389,17 @@ func (client *KafkaClient) RefreshConsumerOffset(msg *sarama.ConsumerMessage) {
 		Offset:    int64(offset),
 		Timestamp: int64(timestamp),
 	}
-	client.importer.saveMsg(lag)
+	client.consumerOffsetMapLock.Lock()
+	if _, ok := client.consumerOffset[topic]; !ok {
+		client.consumerOffset[topic] = make(map[int32]map[string]*ConsumerOffset)
+	}
+	if _, ok := client.consumerOffset[topic][int32(partition)]; !ok {
+		client.consumerOffset[topic][int32(partition)] = make(map[string]*ConsumerOffset)
+	}
+
+	client.consumerOffset[topic][int32(partition)][co.Group] = co
+	log.Debugf("setting %s:%v:%d offset", topic, co.Group, partition)
+	client.consumerOffsetMapLock.Unlock()
 	return
 }
 func readString(buf *bytes.Buffer) (string, error) {
@@ -344,6 +416,10 @@ func readString(buf *bytes.Buffer) (string, error) {
 	return string(strbytes), nil
 }
 
-func genKey(topic string, partion int) string {
-	return fmt.Sprintf("%s_%d", topic, partion)
+func genKey(topic, consumer string, partition int) string {
+	return fmt.Sprintf("%s_%s_%d", topic, consumer, partition)
+}
+
+func getConsumerFromKey(key string) string {
+	return strings.Split(key, "_")[1]
 }
