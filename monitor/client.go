@@ -272,6 +272,7 @@ func (client *KafkaClient) getOffsets() error {
 							if _, ok := result[consumer]; !ok {
 								result[consumer] = &ConsumerFullOffset{
 									Cluster:        client.cluster,
+									Topic:          topic,
 									Group:          consumer,
 									PartionMap:     make(map[int32]bool),
 									PartitionCount: offset.TopicPartitionCount,
