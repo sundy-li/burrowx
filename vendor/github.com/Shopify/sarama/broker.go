@@ -376,6 +376,7 @@ func (b *Broker) send(rb protocolBody, promiseResponse bool) (*responsePromise, 
 		}
 		return nil, ErrNotConnected
 	}
+
 	if !b.conf.Version.IsAtLeast(rb.requiredVersion()) {
 		return nil, ErrUnsupportedVersion
 	}

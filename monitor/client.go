@@ -160,14 +160,8 @@ func (client *KafkaClient) Start() {
 		client.wgFanIn.Add(2)
 		go func() {
 			defer client.wgFanIn.Done()
-			//20 pool per partition
-			var pool = make(chan struct{}, 20)
 			for msg := range pconsumer.Messages() {
-				pool <- struct{}{}
-				go func() {
-					client.messageChannel <- msg
-					<-pool
-				}()
+				client.messageChannel <- msg
 			}
 		}()
 		go func() {
@@ -274,32 +268,32 @@ func (client *KafkaClient) getOffsets() error {
 									Cluster:        client.cluster,
 									Topic:          topic,
 									Group:          consumer,
-									PartionMap:     make(map[int32]bool),
+									partitionMap:   make(map[int32]bool),
 									PartitionCount: offset.TopicPartitionCount,
 									Timestamp:      offset.Timestamp,
 								}
 							}
 							//judge time diff
 							if offset.Timestamp-consumerOffset.Timestamp <= 60*1000 {
-								if _, ok := result[consumer].PartionMap[offset.Partition]; !ok {
-									result[consumer].PartionMap[offset.Partition] = true
+								if _, ok := result[consumer].partitionMap[offset.Partition]; !ok {
+									result[consumer].partitionMap[offset.Partition] = true
 									result[consumer].Offset += consumerOffset.Offset
 									result[consumer].MaxOffset += offset.Offset
 								}
 							} else {
 								//ingore
-								log.Debugf("Drop %s:%v offset by partion metric by time diff not match", topic, consumer)
+								log.Debugf("Drop %s:%v offset by partition metric by time diff not match", topic, consumer)
 							}
 						}
 					} else {
-						log.Debugf("Drop %s:%d offset by partion metric match ", topic, offset.Partition)
+						log.Debugf("Drop %s:%d offset by partition metric match ", topic, offset.Partition)
 					}
 				} else {
 					//ignore
 				}
 			}
 			for consumer, consumerFullOffset := range result {
-				if len(consumerFullOffset.PartionMap) == consumerFullOffset.PartitionCount {
+				if len(consumerFullOffset.partitionMap) == consumerFullOffset.PartitionCount {
 					client.importer.saveMsg(consumerFullOffset)
 					log.Debugf("Saving %s:%v offset", topic, consumer)
 				}
@@ -359,7 +353,6 @@ func (client *KafkaClient) RefreshConsumerOffset(msg *sarama.ConsumerMessage) {
 		log.Warnf("Failed to decode %s:%v offset %v: keyver %v", msg.Topic, msg.Partition, msg.Offset, keyver)
 		return
 	}
-
 	buf = bytes.NewBuffer(msg.Value)
 	err = binary.Read(buf, binary.BigEndian, &valver)
 	if (err != nil) || ((valver != 0) && (valver != 1)) {

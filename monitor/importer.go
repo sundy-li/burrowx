@@ -38,8 +38,11 @@ func NewImporter(cfg *config.Config) (i *Importer, err error) {
 	return
 }
 
-//TODO CREATE DATABASE
 func (i *Importer) start() {
+	_, err := i.runCmd("create database " + i.cfg.Influxdb.Db)
+	if err != nil {
+		panic(err)
+	}
 	go func() {
 		bp, _ := client.NewBatchPoints(client.BatchPointsConfig{
 			Database:  i.cfg.Influxdb.Db,
@@ -89,4 +92,22 @@ func (i *Importer) saveMsg(msg *ConsumerFullOffset) {
 func (i *Importer) stop() {
 	close(i.msgs)
 	<-i.stopped
+}
+
+// runCmd method is for influxb querys
+func (i *Importer) runCmd(cmd string) (res []client.Result, err error) {
+	q := client.Query{
+		Command:  cmd,
+		Database: i.cfg.Influxdb.Db,
+	}
+	if response, err := i.influxdb.Query(q); err == nil {
+		if response.Error() != nil {
+			return res, response.Error()
+		}
+		res = response.Results
+	} else {
+		return res, err
+	}
+	return res, nil
+
 }

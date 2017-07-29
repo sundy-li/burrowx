@@ -30,5 +30,5 @@ type ConsumerFullOffset struct {
 	Timestamp int64
 
 	PartitionCount int
-	PartionMap     map[int32]bool
+	partitionMap   map[int32]bool
 }
