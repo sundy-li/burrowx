@@ -19,6 +19,16 @@ type ConsumerOffset struct {
 	Timestamp int64
 }
 
+type TopicFullOffset struct {
+	Cluster string
+	Topic   string
+
+	Offset    int64
+	Timestamp int64
+
+	partitionMap map[int32]int64
+}
+
 type ConsumerFullOffset struct {
 	Cluster string
 	Topic   string
@@ -29,6 +39,5 @@ type ConsumerFullOffset struct {
 	Lag       int64
 	Timestamp int64
 
-	PartitionCount int
-	partitionMap   map[int32]bool
+	partitionMap map[int32]int64
 }

@@ -35,7 +35,7 @@ type KafkaClient struct {
 	consumerOffset        map[string]map[int32]map[string]*ConsumerOffset //topic => partition => group => offset
 
 	topicOffsetMapLock sync.RWMutex
-	topicOffset        map[string][]*TopicPartitionOffset //topic => partition => offset
+	topicOffset        map[string]*TopicFullOffset //topic => offset
 
 	importer *Importer
 }
@@ -105,7 +105,7 @@ func NewKafkaClient(cfg *config.Config, cluster string) (*KafkaClient, error) {
 		consumerOffset:        make(map[string]map[int32]map[string]*ConsumerOffset),
 		consumerOffsetMapLock: sync.RWMutex{},
 
-		topicOffset:        make(map[string][]*TopicPartitionOffset),
+		topicOffset:        make(map[string]*TopicFullOffset),
 		topicOffsetMapLock: sync.RWMutex{},
 
 		importer: importer,
@@ -199,19 +199,17 @@ func (client *KafkaClient) getOffsets() error {
 	requests := make(map[int32]*sarama.OffsetRequest)
 	brokers := make(map[int32]*sarama.Broker)
 
-	client.topicMapLock.RLock()
-
 	// Generate an OffsetRequest for each topic:partition and bucket it to the leader broker
 	for topic, partitions := range client.topicMap {
 		for i := 0; i < partitions; i++ {
 			broker, err := client.client.Leader(topic, int32(i))
 			if err != nil {
-				client.topicMapLock.RUnlock()
 				log.Errorf("Topic leader error on %s:%v: %v", topic, int32(i), err)
 				return err
 			}
 			if _, ok := requests[broker.ID()]; !ok {
 				requests[broker.ID()] = &sarama.OffsetRequest{}
+				log.Debug("Setbroker=>", broker.ID())
 			}
 			brokers[broker.ID()] = broker
 			requests[broker.ID()].AddBlock(topic, int32(i), sarama.OffsetNewest, 1)
@@ -232,83 +230,115 @@ func (client *KafkaClient) getOffsets() error {
 		}
 		ts := time.Now().Unix() * 1000
 
-		client.topicOffsetMapLock.Lock()
-		client.topicOffset = make(map[string][]*TopicPartitionOffset)
-		client.topicOffsetMapLock.Unlock()
+		topicOffsetMap := make(map[string]*TopicFullOffset)
 		for topic, partitions := range response.Blocks {
+			if _, ok := topicOffsetMap[topic]; !ok {
+				topicOffsetMap[topic] = &TopicFullOffset{
+					Cluster:      client.cluster,
+					Topic:        topic,
+					partitionMap: make(map[int32]int64),
+					Timestamp:    ts,
+				}
+			}
+			tp := topicOffsetMap[topic]
+
 			for partition, offsetResponse := range partitions {
 				if offsetResponse.Err != sarama.ErrNoError {
 					log.Warnf("Error in OffsetResponse for %s:%v from broker %v: %s", topic, partition, brokerId, offsetResponse.Err.Error())
-					continue
+					return
 				}
-				offset := &TopicPartitionOffset{
-					Cluster:             client.cluster,
-					Topic:               topic,
-					Partition:           partition,
-					Offset:              offsetResponse.Offsets[0],
-					Timestamp:           ts,
-					TopicPartitionCount: client.topicMap[topic],
-				}
-
-				client.topicOffsetMapLock.Lock()
-				client.topicOffset[offset.Topic] = append(client.topicOffset[offset.Topic], offset)
-				client.topicOffsetMapLock.Unlock()
-			}
-		}
-
-		for topic, offsets := range client.topicOffset {
-			result := make(map[string]*ConsumerFullOffset)
-			//foreach partition of this topic
-			for _, offset := range offsets {
-				if _, ok := client.consumerOffset[topic]; ok {
-					if _, ok := client.consumerOffset[topic][offset.Partition]; ok {
-						for consumer, consumerOffset := range client.consumerOffset[topic][offset.Partition] {
-							if _, ok := result[consumer]; !ok {
-								result[consumer] = &ConsumerFullOffset{
-									Cluster:        client.cluster,
-									Topic:          topic,
-									Group:          consumer,
-									partitionMap:   make(map[int32]bool),
-									PartitionCount: offset.TopicPartitionCount,
-									Timestamp:      offset.Timestamp,
-								}
-							}
-							//judge time diff
-							if offset.Timestamp-consumerOffset.Timestamp <= 60*1000 {
-								if _, ok := result[consumer].partitionMap[offset.Partition]; !ok {
-									result[consumer].partitionMap[offset.Partition] = true
-									result[consumer].Offset += consumerOffset.Offset
-									result[consumer].MaxOffset += offset.Offset
-								}
-							} else {
-								//ingore
-								log.Debugf("Drop %s:%v offset by partition metric by time diff not match", topic, consumer)
-							}
-						}
-					} else {
-						log.Debugf("Drop %s:%d offset by partition metric match ", topic, offset.Partition)
-					}
-				} else {
-					//ignore
-				}
-			}
-			for consumer, consumerFullOffset := range result {
-				if len(consumerFullOffset.partitionMap) == consumerFullOffset.PartitionCount {
-					client.importer.saveMsg(consumerFullOffset)
-					log.Debugf("Saving %s:%v offset", topic, consumer)
+				if _, ok := tp.partitionMap[partition]; !ok {
+					tp.Offset += offsetResponse.Offsets[0]
+					tp.partitionMap[partition] = tp.Offset
 				}
 			}
 		}
+		client.MergeMaps(topicOffsetMap)
 	}
 
+	//initial
+	client.topicOffset = make(map[string]*TopicFullOffset)
 	for brokerId, request := range requests {
 		wg.Add(1)
 		go getBrokerOffsets(brokerId, request)
 	}
-
 	wg.Wait()
-	client.topicMapLock.RUnlock()
+	client.CombineTopicAndConsumer()
 	return nil
+}
+
+func (client *KafkaClient) MergeMaps(topicOffsetMap map[string]*TopicFullOffset) {
+	client.topicOffsetMapLock.Lock()
+	defer client.topicOffsetMapLock.Unlock()
+
+	for topic, topicOffset := range topicOffsetMap {
+		if _, ok := client.topicOffset[topic]; !ok {
+			client.topicOffset[topic] = topicOffset
+		} else {
+			for partition, offset := range topicOffset.partitionMap {
+				if _, ok2 := client.topicOffset[topic].partitionMap[partition]; !ok2 {
+					client.topicOffset[topic].partitionMap[partition] = offset
+					client.topicOffset[topic].Offset += offset
+
+					log.Debugf("Topic offset setting %s:%d:%d", topic, partition, len(client.topicOffset[topic].partitionMap))
+				}
+			}
+		}
+	}
+}
+
+func (client *KafkaClient) CombineTopicAndConsumer() {
+	for topic, offset := range client.topicOffset {
+		count := client.GetPartitionCount(topic)
+		if count != len(offset.partitionMap) {
+			log.Warnf("Drop topic %s offset,except %d partition actually got %d", topic, count, len(offset.partitionMap))
+			continue
+		}
+		result := make(map[string]*ConsumerFullOffset)
+		if _, ok := client.consumerOffset[topic]; ok {
+			for partition, partitionOffset := range offset.partitionMap {
+				if _, ok := client.consumerOffset[topic][partition]; ok {
+					for consumer, consumerOffset := range client.consumerOffset[topic][partition] {
+						if _, ok := result[consumer]; !ok {
+							result[consumer] = &ConsumerFullOffset{
+								Cluster:      client.cluster,
+								Topic:        topic,
+								Group:        consumer,
+								partitionMap: make(map[int32]int64),
+								Timestamp:    offset.Timestamp,
+							}
+						}
+						//judge time diff
+						if offset.Timestamp-consumerOffset.Timestamp <= 60*1000 {
+							if _, ok := result[consumer].partitionMap[partition]; !ok {
+								result[consumer].partitionMap[partition] = consumerOffset.Offset
+								result[consumer].Offset += consumerOffset.Offset
+								result[consumer].MaxOffset += partitionOffset
+							}
+						} else {
+							//ingore
+							log.Debugf("Drop %s:%v offset by partition metric by time diff not match", topic, consumer)
+						}
+					}
+				} else {
+					log.Debugf("Drop %s:%d offset by partition metric match ", topic, partition)
+				}
+			}
+
+		} else {
+			//ignore
+			log.Debugf("Topic %s not found any consumer", topic)
+		}
+		for consumer, consumerFullOffset := range result {
+			if len(consumerFullOffset.partitionMap) == count {
+				client.importer.saveMsg(consumerFullOffset)
+				log.Debugf("Saving %s:%v offset", topic, consumer)
+			} else {
+				log.Debugf("Dropping %s:%v offset,not full fill expect %d partition metrics actually got %d ", topic, consumer, count, len(consumerFullOffset.partitionMap))
+			}
+		}
+	}
+
 }
 
 func (client *KafkaClient) RefreshTopicMap() {
@@ -319,6 +349,10 @@ func (client *KafkaClient) RefreshTopicMap() {
 		client.topicMap[topic] = len(partitions)
 	}
 	client.topicMapLock.Unlock()
+}
+
+func (client *KafkaClient) GetPartitionCount(topic string) int {
+	return client.topicMap[topic]
 }
 
 func (client *KafkaClient) RefreshConsumerOffset(msg *sarama.ConsumerMessage) {
