@@ -4,7 +4,7 @@ A simple, lightweight kafka offset monitor, currently metrics stored by influxdb
 
 
 #### DemoView
-![https://github.com/sundy-li/burrowx/blob/master/doc/demo.png](burrowx with influxdb and granfana)
+![burrowx with influxdb and granfana](./doc/demo.png)
 
 #### Install
 ```
