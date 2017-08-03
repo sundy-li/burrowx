@@ -20,11 +20,11 @@ $ $GOPATH/bin/burrowx --config path/to/server.json
 
 #### Grafana query
 
- - logsize template query  : `SELECT "logsize" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$topic' AND "cluster" = '$cluster' AND $timeFilter`  
+ - logsize template query  : `SELECT "logsize" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$group' AND "cluster" = '$cluster' AND $timeFilter`  
  
- - offsize template query  : `SELECT "offsize" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$topic' AND "cluster" = '$cluster' AND $timeFilter`  
+ - offsize template query  : `SELECT "offsize" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$group' AND "cluster" = '$cluster' AND $timeFilter`  
 
- - lag template query  : `SELECT "lag" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$topic' AND "cluster" = '$cluster' AND $timeFilter`  
+ - lag template query  : `SELECT "lag" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$group' AND "cluster" = '$cluster' AND $timeFilter`  
 
 
 
