@@ -14,6 +14,7 @@ $ go build && go install
 
 #### Running burrowx
 ```
+//modify server.json file to set influxdb url,then run it
 $ $GOPATH/bin/burrowx --config path/to/server.json
 ```
 
@@ -29,6 +30,6 @@ $ $GOPATH/bin/burrowx --config path/to/server.json
 
 
 #### Features
- - Light weight and extremely simple to use, metrics and stored in [influxdb](https://github.com/influxdata/influxdb),  and could be easily viewed on [grafana](https://github.com/grafana/grafana)
- - Only support kafka version 0.9.X,0.10.X which stores the consumer offsets in kakfa topic `_consumer_offsets`
+ - Light weight and extremely simple to use, metrics are stored in [influxdb](https://github.com/influxdata/influxdb),  and could be easily viewed on [grafana](https://github.com/grafana/grafana)
+ - Only support kafka version 0.9.X,0.10.X which stores the consumer offsets in kakfa topic `__consumer_offsets`
  - Base on topic,partitions of a topic are merged into topic
