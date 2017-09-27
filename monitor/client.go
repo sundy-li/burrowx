@@ -249,7 +249,7 @@ func (client *KafkaClient) getOffsets() error {
 				}
 				if _, ok := tp.partitionMap[partition]; !ok {
 					tp.Offset += offsetResponse.Offsets[0]
-					tp.partitionMap[partition] = tp.Offset
+					tp.partitionMap[partition] = offsetResponse.Offsets[0]
 				}
 			}
 		}
