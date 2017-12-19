@@ -2,7 +2,7 @@
 *.json
 *.log
 
+.DS_Store
 .idea
 Burrow.iml
-vendor
 tmp
