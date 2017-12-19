@@ -7,26 +7,75 @@ A simple, lightweight kafka offset monitor, currently metrics stored by influxdb
 ![burrowx with influxdb and granfana](./doc/demo.png)
 
 #### Install
-```
+```shell
 $ go get github.com/sundy-li/burrowx
+$ cd $GOPATH/src/github.com/sundy-li/burrowx
 $ go build && go install
 ```
 
 #### Running burrowx
+``` shell
+## new workspace for burrowx
+mkdir -p /data/app/burrowx 
+## cd to the workspace
+cd /data/app/burrowx 
+## cp the files to here
+cp $GOPATH/bin/burrowx ./
+cp -rf $GOPATH/src/github.com/sundy-li/burrowx/config ./
+## modify server.json file config and run it
+./burrowx
 ```
-//modify server.json file to set influxdb url,then run it
-$ $GOPATH/bin/burrowx --config path/to/server.json
-```
+
+
+
+#### Test the data
+
+ - Create a new test topic
+
+	``` 
+	    bin/kafka-topics.sh --create  --zookeeper localhost:2181 --replication-factor 1 --partitions 8 --topic test_burrowx_topic
+	```
+ 
+ - Produce the data to the topic
+
+	```
+		for i in `seq 1 10000`;do echo "33" |  bin/kafka-console-producer.sh   --topic test_burrowx_topic --broker-list localhost:9092 ; sleep 1; done
+	```
+ 
+ - Create a consumer to consume the data
+ 	
+ 	`$ pip install kafka`
+ 	
+
+		from kafka import KafkaConsumer
+		consumer = KafkaConsumer('test_burrowx_topic', group_id='my_group2')
+		for msg in consumer:
+			print(msg)
+
+		print("end")
+
+ Then you will find the data in the influxdb database `burrowx` .
 
 
 #### Grafana query
 
- - logsize template query  : `SELECT "logsize" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$group' AND "cluster" = '$cluster' AND $timeFilter`  
+ - logsize template query : 
  
- - offsize template query  : `SELECT "offsize" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$group' AND "cluster" = '$cluster' AND $timeFilter`  
+ ```sql
+ SELECT "logsize" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$group' AND "cluster" = '$cluster' AND $timeFilter
+ ``` 
+ 
+ - offsize template query  : 
 
- - lag template query  : `SELECT "lag" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$group' AND "cluster" = '$cluster' AND $timeFilter`  
+  ```sql
+  SELECT "offsize" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$group' AND "cluster" = '$cluster' AND $timeFilter
+  ```  
 
+ - lag template query  : 
+
+ ```sql
+ SELECT "lag" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$group' AND "cluster" = '$cluster' AND $timeFilter
+ ``` 
 
 
 #### Features
