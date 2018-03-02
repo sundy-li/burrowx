@@ -4,6 +4,7 @@ A simple, lightweight kafka offset monitor, currently metrics stored by influxdb
 
 
 #### DemoView
+![consumer rate](./doc/rate.jpg)
 ![burrowx with influxdb and granfana](./doc/demo.png)
 
 #### Install
