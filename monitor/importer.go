@@ -13,17 +13,19 @@ type Importer struct {
 	msgs chan *ConsumerFullOffset
 	cfg  *config.Config
 
-	threshold int
-	influxdb  client.Client
-	stopped   chan struct{}
+	threshold  int
+	maxTimeGap int64
+	influxdb   client.Client
+	stopped    chan struct{}
 }
 
 func NewImporter(cfg *config.Config) (i *Importer, err error) {
 	i = &Importer{
-		msgs:      make(chan *ConsumerFullOffset, 1000),
-		cfg:       cfg,
-		threshold: 10,
-		stopped:   make(chan struct{}),
+		msgs:       make(chan *ConsumerFullOffset, 1000),
+		cfg:        cfg,
+		threshold:  10,
+		maxTimeGap: 10,
+		stopped:    make(chan struct{}),
 	}
 	// Create a new HTTPClient
 	c, err := client.NewHTTPClient(client.HTTPConfig{
@@ -48,6 +50,7 @@ func (i *Importer) start() {
 			Database:  i.cfg.Influxdb.Db,
 			Precision: "s",
 		})
+		lastCommit := time.Now().Unix()
 		for msg := range i.msgs {
 			tags := map[string]string{
 				"topic":          msg.Topic,
@@ -68,12 +71,13 @@ func (i *Importer) start() {
 				continue
 			}
 			bp.AddPoint(pt)
-			if len(bp.Points()) > i.threshold {
+			if len(bp.Points()) > i.threshold || time.Now().Unix()-lastCommit >= i.maxTimeGap {
 				err := i.influxdb.Write(bp)
 				bp, _ = client.NewBatchPoints(client.BatchPointsConfig{
 					Database:  i.cfg.Influxdb.Db,
 					Precision: "s",
 				})
+				lastCommit = time.Now().Unix()
 				if err != nil {
 					log.Error("error in insert points ", err.Error())
 					continue

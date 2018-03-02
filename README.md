@@ -58,25 +58,10 @@ cp -rf $GOPATH/src/github.com/sundy-li/burrowx/config ./
 
 
 #### Grafana query
-
- - logsize template query : 
  
- ```sql
- SELECT "logsize" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$group' AND "cluster" = '$cluster' AND $timeFilter
- ``` 
+ [sample_json](./grafana-sample.json)
+   
  
- - offsize template query  : 
-
-  ```sql
-  SELECT "offsize" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$group' AND "cluster" = '$cluster' AND $timeFilter
-  ```  
-
- - lag template query  : 
-
- ```sql
- SELECT "lag" FROM "consumer_metrics" WHERE "topic" = '$topic' AND "consumer_group" = '$group' AND "cluster" = '$cluster' AND $timeFilter
- ``` 
-
 
 #### Features
  - Light weight and extremely simple to use, metrics are stored in [influxdb](https://github.com/influxdata/influxdb),  and could be easily viewed on [grafana](https://github.com/grafana/grafana)
