@@ -3,24 +3,35 @@
     "logconfig": "config/logging.xml",
     "pidfile": "burrowx.pid",
     "clientId": "burrowx-lagchecker",
-    "groupBlacklist": "^(console-consumer-|python-kafka-consumer-).*$"
+    "groupBlacklist": "^(console-consumer-|python-kafka-consumer-).*$",
+
+    "clientProfile" : {
+        "some_key" : {
+          "clientId" : "xxxx",
+          "tls" : "xxx",
+          "tlsNoverify" : "xxxx",
+          "tlsCertfilepath" : "xxxx",
+          "tlsKeyfilepath" : "xxx",
+          "tlsCafilepath" : "xxxx"
+        }
+    }
   },
   "zookeeper": {
-    "hosts": "s1:2181",
+    "hosts": "localhost:2181",
     "timeout": 6,
     "lock-path": "/burrow/notifier"
   },
   "kafka": {
     "local": {
-      "brokers": "s1:9092",
-      "zookeepers": "s1:2181",
+      "brokers": "localhost:9092",
+      "zookeepers": "localhost:2181",
       "offsetsTopic": "__consumer_offsets",
       "clientProfile": ""
     }
   },
   "influxdb": {
     "enable": true,
-    "hosts": "http://s1:8086",
+    "hosts": "http://localhost:8086",
     "db": "burrowx",
     "username": "",
     "pwd": ""
