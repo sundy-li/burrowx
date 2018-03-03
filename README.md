@@ -60,7 +60,7 @@ cp -rf $GOPATH/src/github.com/sundy-li/burrowx/config ./
 
 #### Grafana query
  
- [sample_json](./grafana-sample.json)
+ [grafana.sample.json](./grafana.sample.json)
    
  
 
