@@ -1,5 +1,6 @@
 .*.swp
-*.json
+server.json
+vendor.json
 *.log
 
 .DS_Store
