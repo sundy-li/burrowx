@@ -312,6 +312,10 @@ func (client *KafkaClient) CombineTopicAndConsumer() {
 						if offset.Timestamp-consumerOffset.Timestamp <= 60*1000 {
 							if _, ok := result[consumer].partitionMap[partition]; !ok {
 								result[consumer].partitionMap[partition] = consumerOffset.Offset
+
+								if consumerOffset.Offset < 0 {
+									consumerOffset.Offset = partitionOffset
+								}
 								result[consumer].Offset += consumerOffset.Offset
 								result[consumer].MaxOffset += partitionOffset
 							}
@@ -426,7 +430,7 @@ func (client *KafkaClient) RefreshConsumerOffset(msg *sarama.ConsumerMessage) {
 	}
 
 	client.consumerOffset[topic][int32(partition)][co.Group] = co
-	log.Debugf("setting %s:%v:%d offset", topic, co.Group, partition)
+	log.Debugf("setting %s:%v:%d offset:%d", topic, co.Group, partition, co.Offset)
 	client.consumerOffsetMapLock.Unlock()
 	return
 }
