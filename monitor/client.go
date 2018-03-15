@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,8 @@ type KafkaClient struct {
 	topicOffset        map[string]*TopicFullOffset //topic => offset
 
 	importer *Importer
+
+	topicFilterRegexps []*regexp.Regexp
 }
 
 type BrokerTopicRequest struct {
@@ -72,6 +75,11 @@ func NewKafkaClient(cfg *config.Config, cluster string) (*KafkaClient, error) {
 	}
 	clientConfig.Net.TLS.Config.InsecureSkipVerify = profile.TLSNoVerify
 
+	if cfg.Kafka[cluster].Sasl.Username != "" {
+		clientConfig.Net.SASL.Enable = true
+		clientConfig.Net.SASL.User = cfg.Kafka[cluster].Sasl.Username
+		clientConfig.Net.SASL.Password = cfg.Kafka[cluster].Sasl.Password
+	}
 	sclient, err := sarama.NewClient(strings.Split(cfg.Kafka[cluster].Brokers, ","), clientConfig)
 	if err != nil {
 		return nil, err
@@ -109,6 +117,14 @@ func NewKafkaClient(cfg *config.Config, cluster string) (*KafkaClient, error) {
 		topicOffsetMapLock: sync.RWMutex{},
 
 		importer: importer,
+	}
+
+	if cfg.General.TopicFilter != "" {
+		patterns := strings.Split(cfg.General.TopicFilter, ",")
+		client.topicFilterRegexps = make([]*regexp.Regexp, 0, 10)
+		for _, p := range patterns {
+			client.topicFilterRegexps = append(client.topicFilterRegexps, regexp.MustCompile(p))
+		}
 	}
 
 	return client, nil
@@ -348,7 +364,13 @@ func (client *KafkaClient) CombineTopicAndConsumer() {
 func (client *KafkaClient) RefreshTopicMap() {
 	client.topicMapLock.Lock()
 	topics, _ := client.client.Topics()
+	//filter topic by topicFilter
 	for _, topic := range topics {
+		for _, reg := range client.topicFilterRegexps {
+			if !reg.MatchString(topic) {
+				continue
+			}
+		}
 		partitions, _ := client.client.Partitions(topic)
 		client.topicMap[topic] = len(partitions)
 	}

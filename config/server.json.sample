@@ -5,6 +5,8 @@
     "clientId": "burrowx-lagchecker",
     "groupBlacklist": "^(console-consumer-|python-kafka-consumer-).*$",
 
+    "topicFilter" : "*",
+
     "clientProfile" : {
         "some_key" : {
           "clientId" : "xxxx",

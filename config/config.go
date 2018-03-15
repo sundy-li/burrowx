@@ -12,6 +12,8 @@ type Config struct {
 		GroupBlacklist string `json:"groupBlacklist"`
 		Logconfig      string `json:"logconfig"`
 		Pidfile        string `json:"pidfile"`
+
+		TopicFilter string `json:"topicFilter"`
 	} `json:"general"`
 
 	Influxdb struct {
@@ -28,6 +30,11 @@ type Config struct {
 		OffsetTopic   string `json:"offsetTopic"`
 		ClientProfile string `json:"ClientProfile"`
 		OffsetsTopic  string `gcfg:"offsetsTopic"`
+
+		Sasl struct {
+			Username string
+			Password string
+		}
 	} `json:"kafka"`
 
 	Zookeeper struct {
