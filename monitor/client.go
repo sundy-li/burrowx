@@ -311,44 +311,46 @@ func (client *KafkaClient) CombineTopicAndConsumer() {
 			continue
 		}
 		result := make(map[string]*ConsumerFullOffset)
-		if _, ok := client.consumerOffset[topic]; ok {
-			for partition, partitionOffset := range offset.partitionMap {
-				if _, ok := client.consumerOffset[topic][partition]; ok {
-					for consumer, consumerOffset := range client.consumerOffset[topic][partition] {
-						if _, ok := result[consumer]; !ok {
-							result[consumer] = &ConsumerFullOffset{
-								Cluster:      client.cluster,
-								Topic:        topic,
-								Group:        consumer,
-								partitionMap: make(map[int32]int64),
-								Timestamp:    offset.Timestamp,
-							}
-						}
-						//judge time diff
-						if offset.Timestamp-consumerOffset.Timestamp <= 60*1000 {
-							if _, ok := result[consumer].partitionMap[partition]; !ok {
-								result[consumer].partitionMap[partition] = consumerOffset.Offset
-
-								if consumerOffset.Offset < 0 {
-									consumerOffset.Offset = partitionOffset
+		withReadLock(client.topicOffsetMapLock, func() {
+			if _, ok := client.consumerOffset[topic]; ok {
+				for partition, partitionOffset := range offset.partitionMap {
+					if _, ok := client.consumerOffset[topic][partition]; ok {
+						for consumer, consumerOffset := range client.consumerOffset[topic][partition] {
+							if _, ok := result[consumer]; !ok {
+								result[consumer] = &ConsumerFullOffset{
+									Cluster:      client.cluster,
+									Topic:        topic,
+									Group:        consumer,
+									partitionMap: make(map[int32]int64),
+									Timestamp:    offset.Timestamp,
 								}
-								result[consumer].Offset += consumerOffset.Offset
-								result[consumer].MaxOffset += partitionOffset
 							}
-						} else {
-							//ingore
-							log.Debugf("Drop %s:%v offset by partition metric by time diff not match", topic, consumer)
-						}
-					}
-				} else {
-					log.Debugf("Drop %s:%d offset by partition metric match ", topic, partition)
-				}
-			}
+							//judge time diff
+							if offset.Timestamp-consumerOffset.Timestamp <= 60*1000 {
+								if _, ok := result[consumer].partitionMap[partition]; !ok {
+									result[consumer].partitionMap[partition] = consumerOffset.Offset
 
-		} else {
-			//ignore
-			log.Debugf("Topic %s not found any consumer", topic)
-		}
+									if consumerOffset.Offset < 0 {
+										consumerOffset.Offset = partitionOffset
+									}
+									result[consumer].Offset += consumerOffset.Offset
+									result[consumer].MaxOffset += partitionOffset
+								}
+							} else {
+								//ingore
+								log.Debugf("Drop %s:%v offset by partition metric by time diff not match", topic, consumer)
+							}
+						}
+					} else {
+						log.Debugf("Drop %s:%d offset by partition metric match ", topic, partition)
+					}
+				}
+			} else {
+				//ignore
+				log.Debugf("Topic %s not found any consumer", topic)
+			}
+		})
+
 		for consumer, consumerFullOffset := range result {
 			if len(consumerFullOffset.partitionMap) == count {
 				client.importer.saveMsg(consumerFullOffset)
@@ -443,17 +445,16 @@ func (client *KafkaClient) RefreshConsumerOffset(msg *sarama.ConsumerMessage) {
 		Offset:    int64(offset),
 		Timestamp: int64(timestamp),
 	}
-	client.consumerOffsetMapLock.Lock()
-	if _, ok := client.consumerOffset[topic]; !ok {
-		client.consumerOffset[topic] = make(map[int32]map[string]*ConsumerOffset)
-	}
-	if _, ok := client.consumerOffset[topic][int32(partition)]; !ok {
-		client.consumerOffset[topic][int32(partition)] = make(map[string]*ConsumerOffset)
-	}
-
-	client.consumerOffset[topic][int32(partition)][co.Group] = co
-	log.Debugf("setting %s:%v:%d offset:%d", topic, co.Group, partition, co.Offset)
-	client.consumerOffsetMapLock.Unlock()
+	withWriteLock(client.consumerOffsetMapLock, func() {
+		if _, ok := client.consumerOffset[topic]; !ok {
+			client.consumerOffset[topic] = make(map[int32]map[string]*ConsumerOffset)
+		}
+		if _, ok := client.consumerOffset[topic][int32(partition)]; !ok {
+			client.consumerOffset[topic][int32(partition)] = make(map[string]*ConsumerOffset)
+		}
+		client.consumerOffset[topic][int32(partition)][co.Group] = co
+		log.Debugf("setting %s:%v:%d offset:%d", topic, co.Group, partition, co.Offset)
+	})
 	return
 }
 func readString(buf *bytes.Buffer) (string, error) {
@@ -476,4 +477,16 @@ func genKey(topic, consumer string, partition int) string {
 
 func getConsumerFromKey(key string) string {
 	return strings.Split(key, "_")[1]
+}
+
+func withWriteLock(lock sync.RWMutex, fn func()) {
+	lock.Lock()
+	defer lock.Unlock()
+	fn()
+}
+
+func withReadLock(lock sync.RWMutex, fn func()) {
+	lock.RLock()
+	defer lock.RUnlock()
+	fn()
 }
