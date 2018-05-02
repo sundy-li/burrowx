@@ -29,13 +29,13 @@ type KafkaClient struct {
 	wgFanIn            sync.WaitGroup
 	wgProcessor        sync.WaitGroup
 	topicMap           map[string]int
-	topicMapLock       sync.RWMutex
+	topicMapLock       *sync.RWMutex
 	brokerOffsetTicker *time.Ticker
 
-	consumerOffsetMapLock sync.RWMutex
+	consumerOffsetMapLock *sync.RWMutex
 	consumerOffset        map[string]map[int32]map[string]*ConsumerOffset //topic => partition => group => offset
 
-	topicOffsetMapLock sync.RWMutex
+	topicOffsetMapLock *sync.RWMutex
 	topicOffset        map[string]*TopicFullOffset //topic => offset
 
 	importer *Importer
@@ -107,14 +107,14 @@ func NewKafkaClient(cfg *config.Config, cluster string) (*KafkaClient, error) {
 		wgFanIn:        sync.WaitGroup{},
 		wgProcessor:    sync.WaitGroup{},
 		topicMap:       make(map[string]int),
-		topicMapLock:   sync.RWMutex{},
+		topicMapLock:   &sync.RWMutex{},
 
 		//three map,holy shit
 		consumerOffset:        make(map[string]map[int32]map[string]*ConsumerOffset),
-		consumerOffsetMapLock: sync.RWMutex{},
+		consumerOffsetMapLock: &sync.RWMutex{},
 
 		topicOffset:        make(map[string]*TopicFullOffset),
-		topicOffsetMapLock: sync.RWMutex{},
+		topicOffsetMapLock: &sync.RWMutex{},
 
 		importer: importer,
 	}
@@ -284,23 +284,22 @@ func (client *KafkaClient) getOffsets() error {
 }
 
 func (client *KafkaClient) MergeMaps(topicOffsetMap map[string]*TopicFullOffset) {
-	client.topicOffsetMapLock.Lock()
-	defer client.topicOffsetMapLock.Unlock()
+	withWriteLock(client.topicOffsetMapLock, func() {
+		for topic, topicOffset := range topicOffsetMap {
+			if _, ok := client.topicOffset[topic]; !ok {
+				client.topicOffset[topic] = topicOffset
+			} else {
+				for partition, offset := range topicOffset.partitionMap {
+					if _, ok2 := client.topicOffset[topic].partitionMap[partition]; !ok2 {
+						client.topicOffset[topic].partitionMap[partition] = offset
+						client.topicOffset[topic].Offset += offset
 
-	for topic, topicOffset := range topicOffsetMap {
-		if _, ok := client.topicOffset[topic]; !ok {
-			client.topicOffset[topic] = topicOffset
-		} else {
-			for partition, offset := range topicOffset.partitionMap {
-				if _, ok2 := client.topicOffset[topic].partitionMap[partition]; !ok2 {
-					client.topicOffset[topic].partitionMap[partition] = offset
-					client.topicOffset[topic].Offset += offset
-
-					log.Debugf("Topic offset setting %s:%d:%d", topic, partition, len(client.topicOffset[topic].partitionMap))
+						log.Debugf("Topic offset setting %s:%d:%d", topic, partition, len(client.topicOffset[topic].partitionMap))
+					}
 				}
 			}
 		}
-	}
+	})
 }
 
 func (client *KafkaClient) CombineTopicAndConsumer() {
@@ -364,19 +363,19 @@ func (client *KafkaClient) CombineTopicAndConsumer() {
 }
 
 func (client *KafkaClient) RefreshTopicMap() {
-	client.topicMapLock.Lock()
-	topics, _ := client.client.Topics()
-	//filter topic by topicFilter
-	for _, topic := range topics {
-		for _, reg := range client.topicFilterRegexps {
-			if !reg.MatchString(topic) {
-				continue
+	withWriteLock(client.topicMapLock, func() {
+		topics, _ := client.client.Topics()
+		//filter topic by topicFilter
+		for _, topic := range topics {
+			for _, reg := range client.topicFilterRegexps {
+				if !reg.MatchString(topic) {
+					continue
+				}
 			}
+			partitions, _ := client.client.Partitions(topic)
+			client.topicMap[topic] = len(partitions)
 		}
-		partitions, _ := client.client.Partitions(topic)
-		client.topicMap[topic] = len(partitions)
-	}
-	client.topicMapLock.Unlock()
+	})
 }
 
 func (client *KafkaClient) GetPartitionCount(topic string) int {
@@ -479,13 +478,13 @@ func getConsumerFromKey(key string) string {
 	return strings.Split(key, "_")[1]
 }
 
-func withWriteLock(lock sync.RWMutex, fn func()) {
+func withWriteLock(lock *sync.RWMutex, fn func()) {
 	lock.Lock()
 	defer lock.Unlock()
 	fn()
 }
 
-func withReadLock(lock sync.RWMutex, fn func()) {
+func withReadLock(lock *sync.RWMutex, fn func()) {
 	lock.RLock()
 	defer lock.RUnlock()
 	fn()
