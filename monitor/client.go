@@ -303,6 +303,8 @@ func (client *KafkaClient) MergeMaps(topicOffsetMap map[string]*TopicFullOffset)
 }
 
 func (client *KafkaClient) CombineTopicAndConsumer() {
+	client.topicOffsetMapLock.RLock()
+	defer client.topicOffsetMapLock.RUnlock()
 	for topic, offset := range client.topicOffset {
 		count := client.GetPartitionCount(topic)
 		if count != len(offset.partitionMap) {
@@ -310,7 +312,7 @@ func (client *KafkaClient) CombineTopicAndConsumer() {
 			continue
 		}
 		result := make(map[string]*ConsumerFullOffset)
-		withReadLock(client.topicOffsetMapLock, func() {
+		withReadLock(client.consumerOffsetMapLock, func() {
 			if _, ok := client.consumerOffset[topic]; ok {
 				for partition, partitionOffset := range offset.partitionMap {
 					if _, ok := client.consumerOffset[topic][partition]; ok {
