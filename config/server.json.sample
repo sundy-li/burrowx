@@ -5,13 +5,16 @@
     "clientId": "burrowx-lagchecker",
     "groupBlacklist": "^(console-consumer-|python-kafka-consumer-).*$",
 
-    "topicFilter" : "*",
 
+    "@desc" : "topic filter regexes, separate by `,`, could be .* or empty string",
+    "topicFilter" : ".*",
+
+    "@desc" : "client infos, such as tls",
     "clientProfile" : {
         "some_key" : {
-          "clientId" : "xxxx",
-          "tls" : "xxx",
-          "tlsNoverify" : "xxxx",
+          "clientId" : "some_client_id",
+          "tls" : false,
+          "tlsNoverify" : false,
           "tlsCertfilepath" : "xxxx",
           "tlsKeyfilepath" : "xxx",
           "tlsCafilepath" : "xxxx"
@@ -28,6 +31,8 @@
       "brokers": "localhost:9092",
       "zookeepers": "localhost:2181",
       "offsetsTopic": "__consumer_offsets",
+
+      "@desc" :  "client info key to client infos",
       "clientProfile": ""
     }
   },
