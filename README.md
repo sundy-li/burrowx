@@ -27,6 +27,13 @@ cp -rf $GOPATH/src/github.com/sundy-li/burrowx/config ./
 ./burrowx
 ```
 
+##### Docker
+
+A Docker file is available which builds this project on top of an Alpine Linux image.  
+
+1. Create your desired configuration files (server.yaml, logging.xml)
+1. Run `docker build -t burrowx .`  It will include the server.yaml and logging.xml and automatically start service.
+1. Run the container on your favourite container platform
 
 
 #### Test the data
