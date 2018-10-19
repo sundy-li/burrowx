@@ -1,4 +1,5 @@
 .*.swp
+.goreleaser.yml
 server.json
 vendor.json
 *.log

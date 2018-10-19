@@ -8,6 +8,12 @@ A simple, lightweight kafka offset monitor, currently metrics stored by influxdb
 ![burrowx with influxdb and granfana](./doc/demo.png)
 
 #### Install
+
+- By release binary
+
+    Just click the [release links](https://github.com/sundy-li/burrowx/releases)
+
+- By source build
 ```shell
 $ go get github.com/sundy-li/burrowx
 $ cd $GOPATH/src/github.com/sundy-li/burrowx
