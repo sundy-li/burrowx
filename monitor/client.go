@@ -170,7 +170,8 @@ func (client *KafkaClient) Start() {
 	for i, partition := range partitions {
 		pconsumer, err := client.masterConsumer.ConsumePartition(client.cfg.Kafka[client.cluster].OffsetsTopic, partition, sarama.OffsetNewest)
 		if err != nil {
-			panic(err)
+			log.Errorf("Error in consuming the cluster %s partitions: %s", client.cluster, err.Error())
+			continue
 		}
 		client.partitionConsumers[i] = pconsumer
 		client.wgFanIn.Add(2)
