@@ -29,7 +29,9 @@ cd /data/app/burrowx
 ## cp the files to here
 cp $GOPATH/bin/burrowx ./
 cp -rf $GOPATH/src/github.com/sundy-li/burrowx/config ./
-## modify server.json file config and run it
+
+## you should create the burrowx database in influxdb manually
+## then modify server.json file config and run it 
 ./burrowx
 ```
 

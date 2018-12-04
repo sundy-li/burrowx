@@ -41,10 +41,10 @@ func NewImporter(cfg *config.Config) (i *Importer, err error) {
 }
 
 func (i *Importer) start() {
-	_, err := i.runCmd("create database " + i.cfg.Influxdb.Db)
-	if err != nil {
-		panic(err)
-	}
+	// _, err := i.runCmd("create database " + i.cfg.Influxdb.Db)
+	// if err != nil {
+	// 	panic(err)
+	// }
 	go func() {
 		bp, _ := client.NewBatchPoints(client.BatchPointsConfig{
 			Database:  i.cfg.Influxdb.Db,
