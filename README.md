@@ -73,10 +73,15 @@ A Docker file is available which builds this project on top of an Alpine Linux i
  Then you will find the data in the influxdb database `burrowx` .
 
 
-#### Grafana query
- 
- [grafana.sample.json](./grafana.sample.json)
-   
+#### Schema in influxdb
+
+* `cluster` : cluster name
+* `topic` :  topic name
+* `consumer_group` : group name
+* `partition` : partition id
+* `logsize` : partition logsize
+* `offsize` : partition consumer offsize
+* `lag` : partition consumer log
  
 
 #### Features

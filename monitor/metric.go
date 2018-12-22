@@ -1,5 +1,10 @@
 package monitor
 
+type LogOffset struct {
+	Logsize int64
+	Offset  int64
+}
+
 type TopicPartitionOffset struct {
 	Cluster             string
 	Topic               string
@@ -34,10 +39,7 @@ type ConsumerFullOffset struct {
 	Topic   string
 	Group   string
 
-	MaxOffset int64
-	Offset    int64
-	Lag       int64
 	Timestamp int64
 
-	partitionMap map[int32]int64
+	partitionMap map[int32]LogOffset
 }

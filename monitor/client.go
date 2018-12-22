@@ -315,7 +315,7 @@ func (client *KafkaClient) CombineTopicAndConsumer() {
 		result := make(map[string]*ConsumerFullOffset)
 		withReadLock(client.consumerOffsetMapLock, func() {
 			if _, ok := client.consumerOffset[topic]; ok {
-				for partition, partitionOffset := range offset.partitionMap {
+				for partition, partitionLogsize := range offset.partitionMap {
 					if _, ok := client.consumerOffset[topic][partition]; ok {
 						for consumer, consumerOffset := range client.consumerOffset[topic][partition] {
 							if _, ok := result[consumer]; !ok {
@@ -323,20 +323,17 @@ func (client *KafkaClient) CombineTopicAndConsumer() {
 									Cluster:      client.cluster,
 									Topic:        topic,
 									Group:        consumer,
-									partitionMap: make(map[int32]int64),
+									partitionMap: make(map[int32]LogOffset),
 									Timestamp:    offset.Timestamp,
 								}
 							}
 							//judge time diff
 							if offset.Timestamp-consumerOffset.Timestamp <= 60*1000 {
 								if _, ok := result[consumer].partitionMap[partition]; !ok {
-									result[consumer].partitionMap[partition] = consumerOffset.Offset
-
 									if consumerOffset.Offset < 0 {
-										consumerOffset.Offset = partitionOffset
+										consumerOffset.Offset = partitionLogsize
 									}
-									result[consumer].Offset += consumerOffset.Offset
-									result[consumer].MaxOffset += partitionOffset
+									result[consumer].partitionMap[partition] = LogOffset{partitionLogsize, consumerOffset.Offset}
 								}
 							} else {
 								//ingore
