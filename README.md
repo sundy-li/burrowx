@@ -97,4 +97,3 @@ SELECT sum("lag") FROM "consumer_metrics" WHERE ("cluster" = 'your_cluster' AND 
 #### Features
  - Light weight and extremely simple to use, metrics are stored in [influxdb](https://github.com/influxdata/influxdb),  and could be easily viewed on [grafana](https://github.com/grafana/grafana)
  - Only support kafka version >= 0.9.X, which stores the consumer offsets in the topic `__consumer_offsets`,if you are using kafka 0.8.X, try my previous repo `https://github.com/shunfei/Dcmonitor`
- - Base on topic,partitions of a topic are merged into topic
