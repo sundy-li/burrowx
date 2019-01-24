@@ -3,11 +3,11 @@
     "logconfig": "config/logging.xml",
     "pidfile": "burrowx.pid",
     "clientId": "burrowx-lagchecker",
-    "groupBlacklist": "^(console-consumer-|python-kafka-consumer-).*$",
 
-
-    "@desc" : "topic filter regexes, separate by `,`, could be .* or empty string",
-    "topicFilter" : ".*",
+    "@desc" : "topic => consumer groups",
+    "topic2Consumers" : {
+      "topic_aa" : [ "consumer_a", "consumer_b"]
+    },
 
     "@desc" : "client infos, such as tls",
     "clientProfile" : {
@@ -29,9 +29,6 @@
   "kafka": {
     "local": {
       "brokers": "localhost:9092",
-      "zookeepers": "localhost:2181",
-      "offsetsTopic": "__consumer_offsets",
-
       "@desc" :  "client info key to client infos",
       "clientProfile": ""
     }

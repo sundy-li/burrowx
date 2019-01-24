@@ -78,15 +78,15 @@ func (i *Importer) start() {
 
 			if len(bp.Points()) > i.threshold || time.Now().Unix()-lastCommit >= i.maxTimeGap {
 				err := i.influxdb.Write(bp)
+				if err != nil {
+					log.Error("error in insert points ", err.Error())
+					continue
+				}
 				bp, _ = client.NewBatchPoints(client.BatchPointsConfig{
 					Database:  i.cfg.Influxdb.Db,
 					Precision: "s",
 				})
 				lastCommit = time.Now().Unix()
-				if err != nil {
-					log.Error("error in insert points ", err.Error())
-					continue
-				}
 			}
 		}
 		i.stopped <- struct{}{}
