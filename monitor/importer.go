@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"fmt"
 	"time"
 
 	client "github.com/influxdata/influxdb/client/v2"
@@ -60,11 +61,12 @@ func (i *Importer) start() {
 
 			for partition, entry := range msg.partitionMap {
 				//offset is the sql keyword, so we use offsize
+				tags["partition"] = fmt.Sprintf("%d", partition)
+
 				fields := map[string]interface{}{
-					"partition": partition,
-					"logsize":   entry.Logsize,
-					"offsize":   entry.Offset,
-					"lag":       entry.Logsize - entry.Offset,
+					"logsize": entry.Logsize,
+					"offsize": entry.Offset,
+					"lag":     entry.Logsize - entry.Offset,
 				}
 
 				tm := time.Unix(msg.Timestamp/1000, 0)
