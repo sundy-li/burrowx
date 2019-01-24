@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"fmt"
 	"time"
 
 	client "github.com/influxdata/influxdb/client/v2"
@@ -57,31 +58,37 @@ func (i *Importer) start() {
 				"consumer_group": msg.Group,
 				"cluster":        msg.Cluster,
 			}
-			//offset is the sql keyword, so we use offsize
-			fields := map[string]interface{}{
-				"offsize": msg.Offset,
-				"logsize": msg.MaxOffset,
-				"lag":     msg.MaxOffset - msg.Offset,
+
+			for partition, entry := range msg.partitionMap {
+				//offset is the sql keyword, so we use offsize
+				tags["partition"] = fmt.Sprintf("%d", partition)
+
+				fields := map[string]interface{}{
+					"logsize": entry.Logsize,
+					"offsize": entry.Offset,
+					"lag":     entry.Logsize - entry.Offset,
+				}
+
+				tm := time.Unix(msg.Timestamp/1000, 0)
+				pt, err := client.NewPoint("consumer_metrics", tags, fields, tm)
+				if err != nil {
+					log.Error("error in add point ", err.Error())
+					continue
+				}
+				bp.AddPoint(pt)
 			}
 
-			tm := time.Unix(msg.Timestamp/1000, 0)
-			pt, err := client.NewPoint("consumer_metrics", tags, fields, tm)
-			if err != nil {
-				log.Error("error in add point ", err.Error())
-				continue
-			}
-			bp.AddPoint(pt)
 			if len(bp.Points()) > i.threshold || time.Now().Unix()-lastCommit >= i.maxTimeGap {
 				err := i.influxdb.Write(bp)
+				if err != nil {
+					log.Error("error in insert points ", err.Error())
+					continue
+				}
 				bp, _ = client.NewBatchPoints(client.BatchPointsConfig{
 					Database:  i.cfg.Influxdb.Db,
 					Precision: "s",
 				})
 				lastCommit = time.Now().Unix()
-				if err != nil {
-					log.Error("error in insert points ", err.Error())
-					continue
-				}
 			}
 		}
 		i.stopped <- struct{}{}

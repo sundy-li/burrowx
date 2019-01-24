@@ -8,12 +8,12 @@ import (
 
 type Config struct {
 	General struct {
-		ClientId       string `json:"clientId"`
-		GroupBlacklist string `json:"groupBlacklist"`
-		Logconfig      string `json:"logconfig"`
-		Pidfile        string `json:"pidfile"`
+		ClientId  string `json:"clientId"`
+		Logconfig string `json:"logconfig"`
+		Pidfile   string `json:"pidfile"`
 
 		TopicFilter string `json:"topicFilter"`
+		GroupFilter string `json:"groupFilter"`
 	} `json:"general"`
 
 	Influxdb struct {
@@ -26,22 +26,13 @@ type Config struct {
 
 	Kafka map[string]*struct {
 		Brokers       string `json:"brokers"`
-		Zookeepers    string `json:"zookeepers"`
-		OffsetTopic   string `json:"offsetTopic"`
 		ClientProfile string `json:"ClientProfile"`
-		OffsetsTopic  string `gcfg:"offsetsTopic"`
 
 		Sasl struct {
 			Username string
 			Password string
 		}
 	} `json:"kafka"`
-
-	Zookeeper struct {
-		Hosts     string `json:"hosts"`
-		Lock_path string `json:"lock-path"`
-		Timeout   int    `json:"timeout"`
-	} `json:"zookeeper"`
 
 	ClientProfile map[string]*Profile `json:"ClientProfile"`
 }
@@ -78,9 +69,6 @@ func (cfg *Config) Init() {
 	}
 
 	for _, k := range cfg.Kafka {
-		if k.OffsetTopic == "" {
-			k.OffsetTopic = "__consumer_offsets"
-		}
 		if k.ClientProfile == "" {
 			k.ClientProfile = "default"
 		}
