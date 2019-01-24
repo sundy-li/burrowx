@@ -4,10 +4,9 @@
     "pidfile": "burrowx.pid",
     "clientId": "burrowx-lagchecker",
 
-    "@desc" : "topic => consumer groups",
-    "topic2Consumers" : {
-      "topic_aa" : [ "consumer_a", "consumer_b"]
-    },
+    "topicFilter" :  "topic_regex1,topic_regex2",
+    "group_filter" :  "group_regex1,group_regex2",
+
 
     "@desc" : "client infos, such as tls",
     "clientProfile" : {
