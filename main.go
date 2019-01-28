@@ -34,7 +34,7 @@ func main() {
 	fetcher.Start()
 	WaitForExitSign()
 	fetcher.Stop()
-	log.Printf("signal catched,burrowx will be shutdown,goodbuy")
+	log.Printf("signal catched,burrowx will be shutdown, goodbye")
 }
 
 func WaitForExitSign() {
