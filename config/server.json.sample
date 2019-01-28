@@ -5,7 +5,7 @@
     "clientId": "burrowx-lagchecker",
 
     "topicFilter" :  "topic_regex1,topic_regex2",
-    "group_filter" :  "group_regex1,group_regex2",
+    "groupFilter" :  "group_regex1,group_regex2",
 
 
     "@desc" : "client infos, such as tls",
