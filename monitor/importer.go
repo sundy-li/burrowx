@@ -68,6 +68,9 @@ func (i *Importer) start() {
 					"offsize": entry.Offset,
 					"lag":     entry.Logsize - entry.Offset,
 				}
+				if entry.Offset < 0 {
+					fields["lag"] = -1
+				}
 
 				tm := time.Unix(msg.Timestamp/1000, 0)
 				pt, err := client.NewPoint("consumer_metrics", tags, fields, tm)
