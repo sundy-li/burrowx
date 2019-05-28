@@ -239,6 +239,7 @@ func (client *KafkaClient) offsetFetchImport() {
 			}
 
 			manager, _ := sarama.NewOffsetManagerFromClient(consumer, client.client)
+			defer manager.Close()
 			var parition int32
 			for parition = 0; parition < int32(client.topicMap[topic]); parition++ {
 				pmanager, _ := manager.ManagePartition(topic, parition)
