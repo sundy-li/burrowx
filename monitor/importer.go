@@ -70,6 +70,7 @@ func (i *Importer) start() {
 				}
 				if entry.Offset < 0 {
 					fields["lag"] = -1
+					continue
 				}
 
 				tm := time.Unix(msg.Timestamp/1000, 0)
