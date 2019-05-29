@@ -10,3 +10,5 @@ vendor.json
 .idea
 Burrow.iml
 tmp
+burrowx
+dist
