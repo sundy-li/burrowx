@@ -1,4 +1,6 @@
 .*.swp
+Gopkg.toml
+Gopkg.lock
 .goreleaser.yml
 server.json
 vendor.json
