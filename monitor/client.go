@@ -50,17 +50,15 @@ func NewKafkaClient(cfg *config.Config, cluster string) (*KafkaClient, error) {
 	// Set up sarama config from profile
 	clientConfig := sarama.NewConfig()
 	clientConfig.Version = sarama.V0_10_2_0
-	profile := cfg.ClientProfile[cfg.Kafka[cluster].ClientProfile]
-	clientConfig.ClientID = profile.ClientId
-	clientConfig.Net.TLS.Enable = profile.TLS
-	if profile.TLSCertFilePath == "" || profile.TLSKeyFilePath == "" || profile.TLSCAFilePath == "" {
-		clientConfig.Net.TLS.Config = &tls.Config{}
-	} else {
-		caCert, err := ioutil.ReadFile(profile.TLSCAFilePath)
+
+	var kfk = cfg.Kafka[cluster]
+
+	if kfk.ClientProfile.TLSCertFilePath != "" {
+		caCert, err := ioutil.ReadFile(kfk.ClientProfile.TLSCAFilePath)
 		if err != nil {
 			return nil, err
 		}
-		cert, err := tls.LoadX509KeyPair(profile.TLSCertFilePath, profile.TLSKeyFilePath)
+		cert, err := tls.LoadX509KeyPair(kfk.ClientProfile.TLSCertFilePath, kfk.ClientProfile.TLSKeyFilePath)
 		if err != nil {
 			return nil, err
 		}
@@ -71,15 +69,19 @@ func NewKafkaClient(cfg *config.Config, cluster string) (*KafkaClient, error) {
 			RootCAs:      caCertPool,
 		}
 		clientConfig.Net.TLS.Config.BuildNameToCertificate()
-	}
-	clientConfig.Net.TLS.Config.InsecureSkipVerify = profile.TLSNoVerify
+		clientConfig.Net.TLS.Config.InsecureSkipVerify = kfk.ClientProfile.TLSNoVerify
 
-	if cfg.Kafka[cluster].Sasl.Username != "" {
+	} else {
+		clientConfig.Net.TLS.Config = &tls.Config{}
+	}
+
+	if kfk.Sasl.Username != "" {
 		clientConfig.Net.SASL.Enable = true
 		clientConfig.Net.SASL.User = cfg.Kafka[cluster].Sasl.Username
 		clientConfig.Net.SASL.Password = cfg.Kafka[cluster].Sasl.Password
 	}
-	sclient, err := sarama.NewClient(strings.Split(cfg.Kafka[cluster].Brokers, ","), clientConfig)
+
+	sclient, err := sarama.NewClient(strings.Split(kfk.Brokers, ","), clientConfig)
 	if err != nil {
 		return nil, err
 	}

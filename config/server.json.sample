@@ -7,7 +7,6 @@
     "topicFilter" :  "topic_regex1,topic_regex2",
     "groupFilter" :  "group_regex1,group_regex2",
 
-
     "@desc" : "client infos, such as tls",
     "clientProfile" : {
         "some_key" : {
@@ -29,14 +28,31 @@
     "local": {
       "brokers": "localhost:9092",
       "@desc" :  "client info key to client infos",
-      "clientProfile": ""
+      "clientProfile": "",
+      "sasl" : {
+        "username" : "",
+        "password" : ""
+      }
     }
   },
-  "influxdb": {
-    "enable": true,
-    "hosts": "http://localhost:8086",
-    "db": "burrowx",
-    "username": "",
-    "pwd": ""
-  }
+  "outputs" : [
+    "influxdb": {
+        "enable": true,
+        "hosts": "http://localhost:8086",
+        "db": "burrowx",
+        "username": "",
+        "pwd": ""
+    },
+
+    "kafka" : {
+      "enable": true,
+      "brokers": "localhost:9092",
+      "@desc" :  "client info key to client infos",
+      "clientProfile": "",
+      "sasl" : {
+        "username" : "",
+        "password" : ""
+      }
+    }
+  ]
 }
