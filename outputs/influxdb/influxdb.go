@@ -1,6 +1,7 @@
-package monitor
+package influxdb
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -15,6 +16,7 @@ type InfluxdbOutput struct {
 	msgs chan *model.ConsumerFullOffset
 
 	cfg *InfluxdbConfig
+	ctx context.Context
 
 	threshold  int
 	maxTimeGap int64
@@ -29,15 +31,15 @@ type InfluxdbConfig struct {
 	Db       string
 }
 
-func NewImporter(configStr string) (i *InfluxdbOutput, err error) {
+func New(ctx context.Context, cfgBs []byte) (i *InfluxdbOutput, err error) {
 	var cfg InfluxdbConfig
-
-	json.Unmarshal([]byte(configStr), &cfg)
+	json.Unmarshal(cfgBs, &cfg)
 
 	i = &InfluxdbOutput{
 		msgs:       make(chan *model.ConsumerFullOffset, 1000),
 		threshold:  10,
 		maxTimeGap: 10,
+		ctx:        ctx,
 		stopped:    make(chan struct{}),
 	}
 	// Create a new HTTPClient
@@ -61,56 +63,62 @@ func (i InfluxdbOutput) Start() error {
 			Precision: "s",
 		})
 		lastCommit := time.Now().Unix()
-		for msg := range i.msgs {
-			tags := map[string]string{
-				"topic":          msg.Topic,
-				"consumer_group": msg.Group,
-				"cluster":        msg.Cluster,
-			}
 
-			for partition, entry := range msg.PartitionMap {
-				//offset is the sql keyword, so we use offsize
-				tags["partition"] = fmt.Sprintf("%d", partition)
+	FOR:
+		for {
+			select {
+			case msg := <-i.msgs:
+				tags := map[string]string{
+					"topic":          msg.Topic,
+					"consumer_group": msg.Group,
+					"cluster":        msg.Cluster,
+				}
+				for partition, entry := range msg.PartitionMap {
+					//offset is the sql keyword, so we use offsize
+					tags["partition"] = fmt.Sprintf("%d", partition)
 
-				fields := map[string]interface{}{
-					"logsize": entry.Logsize,
-					"offsize": entry.Offset,
-					"lag":     entry.Logsize - entry.Offset,
-				}
-				if entry.Offset < 0 {
-					fields["lag"] = -1
-					continue
+					fields := map[string]interface{}{
+						"logsize": entry.Logsize,
+						"offsize": entry.Offset,
+						"lag":     entry.Logsize - entry.Offset,
+					}
+					if entry.Offset < 0 {
+						fields["lag"] = -1
+						continue
+					}
+
+					tm := time.Unix(msg.Timestamp/1000, 0)
+					pt, err := client.NewPoint("consumer_metrics", tags, fields, tm)
+					if err != nil {
+						log.Error("error in add point ", err.Error())
+						continue
+					}
+					bp.AddPoint(pt)
 				}
 
-				tm := time.Unix(msg.Timestamp/1000, 0)
-				pt, err := client.NewPoint("consumer_metrics", tags, fields, tm)
-				if err != nil {
-					log.Error("error in add point ", err.Error())
-					continue
+				if len(bp.Points()) > i.threshold || time.Now().Unix()-lastCommit >= i.maxTimeGap {
+					err := i.influxdb.Write(bp)
+					if err != nil {
+						log.Error("error in insert points ", err.Error())
+						continue
+					}
+					bp, _ = client.NewBatchPoints(client.BatchPointsConfig{
+						Database:  i.cfg.Db,
+						Precision: "s",
+					})
+					lastCommit = time.Now().Unix()
 				}
-				bp.AddPoint(pt)
-			}
-
-			if len(bp.Points()) > i.threshold || time.Now().Unix()-lastCommit >= i.maxTimeGap {
-				err := i.influxdb.Write(bp)
-				if err != nil {
-					log.Error("error in insert points ", err.Error())
-					continue
-				}
-				bp, _ = client.NewBatchPoints(client.BatchPointsConfig{
-					Database:  i.cfg.Db,
-					Precision: "s",
-				})
-				lastCommit = time.Now().Unix()
+			case <-i.ctx.Done():
+				close(i.stopped)
+				break FOR
 			}
 		}
-		i.stopped <- struct{}{}
 	}()
 
 	return nil
 }
 
-func (i InfluxdbOutput) SaveMsg(msg *model.ConsumerFullOffset) {
+func (i InfluxdbOutput) SaveMessage(msg *model.ConsumerFullOffset) {
 	i.msgs <- msg
 }
 

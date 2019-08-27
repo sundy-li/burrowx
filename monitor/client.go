@@ -1,9 +1,8 @@
 package monitor
 
 import (
-	"crypto/tls"
-	"crypto/x509"
-	"io/ioutil"
+	"context"
+	"encoding/json"
 	"regexp"
 	"strings"
 	"sync"
@@ -12,6 +11,9 @@ import (
 	"github.com/Shopify/sarama"
 	log "github.com/cihub/seelog"
 	"github.com/sundy-li/burrowx/config"
+	"github.com/sundy-li/burrowx/model"
+	"github.com/sundy-li/burrowx/outputs"
+	"github.com/sundy-li/burrowx/outputs/kafka"
 )
 
 type KafkaClient struct {
@@ -21,6 +23,8 @@ type KafkaClient struct {
 	topicMap       map[string]int
 	topic2Consumer map[string][]string
 
+	ctx             context.Context
+	stopped         chan int
 	schemaUpdateMtx *sync.RWMutex
 
 	brokerOffsetTicker *time.Ticker
@@ -29,7 +33,7 @@ type KafkaClient struct {
 	//topic => parition => offset
 	topicOffset map[string]map[int32]int64
 
-	importer *Importer
+	ops []outputs.Output
 
 	topicFilterRegexps []*regexp.Regexp
 	groupFilterRegexps []*regexp.Regexp
@@ -46,47 +50,17 @@ var (
 	META_UPDATE_INTERVAL_SECOND  = 60
 )
 
-func NewKafkaClient(cfg *config.Config, cluster string) (*KafkaClient, error) {
+func NewKafkaClient(cfg *config.Config, cluster string, ctx context.Context) (*KafkaClient, error) {
 	// Set up sarama config from profile
-	clientConfig := sarama.NewConfig()
-	clientConfig.Version = sarama.V0_10_2_0
 
 	var kfk = cfg.Kafka[cluster]
 
-	if kfk.ClientProfile.TLSCertFilePath != "" {
-		caCert, err := ioutil.ReadFile(kfk.ClientProfile.TLSCAFilePath)
-		if err != nil {
-			return nil, err
-		}
-		cert, err := tls.LoadX509KeyPair(kfk.ClientProfile.TLSCertFilePath, kfk.ClientProfile.TLSKeyFilePath)
-		if err != nil {
-			return nil, err
-		}
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM(caCert)
-		clientConfig.Net.TLS.Config = &tls.Config{
-			Certificates: []tls.Certificate{cert},
-			RootCAs:      caCertPool,
-		}
-		clientConfig.Net.TLS.Config.BuildNameToCertificate()
-		clientConfig.Net.TLS.Config.InsecureSkipVerify = kfk.ClientProfile.TLSNoVerify
-
-	} else {
-		clientConfig.Net.TLS.Config = &tls.Config{}
-	}
-
-	if kfk.Sasl.Username != "" {
-		clientConfig.Net.SASL.Enable = true
-		clientConfig.Net.SASL.User = cfg.Kafka[cluster].Sasl.Username
-		clientConfig.Net.SASL.Password = cfg.Kafka[cluster].Sasl.Password
-	}
-
-	sclient, err := sarama.NewClient(strings.Split(kfk.Brokers, ","), clientConfig)
+	clientConfig, err := kafka.BuildKafkaConfig(kfk.ClientProfile, kfk.Sasl, kfk.Version)
 	if err != nil {
 		return nil, err
 	}
 
-	importer, err := NewImporter(cfg)
+	sclient, err := sarama.NewClient(strings.Split(kfk.Brokers, ","), clientConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -99,11 +73,22 @@ func NewKafkaClient(cfg *config.Config, cluster string) (*KafkaClient, error) {
 		topic2Consumer: make(map[string][]string),
 
 		schemaUpdateMtx: &sync.RWMutex{},
+		stopped:         make(chan int),
+		ctx:             ctx,
 
 		topicOffset:        make(map[string]map[int32]int64),
 		topicOffsetMapLock: &sync.RWMutex{},
+	}
 
-		importer: importer,
+	for _, m := range cfg.Outputs {
+		// start to build outputs
+		bs, _ := json.Marshal(m)
+		typ := m["type"].(string)
+		op, err := outputs.NewOutput(typ, ctx, bs)
+		if err != nil {
+			return nil, err
+		}
+		client.ops = append(client.ops, op)
 	}
 
 	// TopicFilter
@@ -115,7 +100,6 @@ func NewKafkaClient(cfg *config.Config, cluster string) (*KafkaClient, error) {
 		client.topicFilterRegexps = make([]*regexp.Regexp, 0, 10)
 		for _, p := range patterns {
 			client.topicFilterRegexps = append(client.topicFilterRegexps, regexp.MustCompile(p))
-
 		}
 	}
 
@@ -135,32 +119,45 @@ func NewKafkaClient(cfg *config.Config, cluster string) (*KafkaClient, error) {
 }
 
 func (client *KafkaClient) Start() {
-	client.importer.start()
-	// Start the main processor goroutines for __consumer_offsets messages
-	client.RefreshMetaData()
-	client.getOffsets()
-
-	client.brokerOffsetTicker = time.NewTicker(time.Duration(METRIC_FETCH_INTERVAL_SECOND) * time.Second)
+	for _, opt := range client.ops {
+		opt.Start()
+	}
 	go func() {
-		for _ = range client.brokerOffsetTicker.C {
-			client.getOffsets()
-		}
-	}()
+		// Start the main processor goroutines for __consumer_offsets messages
+		client.RefreshMetaData()
+		client.getOffsets()
 
-	// Refresh metadata
-	go func() {
-		ticker := time.NewTicker(time.Duration(META_UPDATE_INTERVAL_SECOND) * time.Second)
-		for _ = range ticker.C {
-			client.RefreshMetaData()
-		}
+		client.brokerOffsetTicker = time.NewTicker(time.Duration(METRIC_FETCH_INTERVAL_SECOND) * time.Second)
+		go func() {
+		FOR:
+			for {
+				select {
+				case <-client.brokerOffsetTicker.C:
+					client.getOffsets()
+				case <-client.ctx.Done():
+					close(client.stopped)
+					// Stop the offset checker and the topic metdata refresh and request channel
+					client.brokerOffsetTicker.Stop()
+					break FOR
+				}
+			}
+		}()
+
+		// Refresh metadata
+		go func() {
+			ticker := time.NewTicker(time.Duration(META_UPDATE_INTERVAL_SECOND) * time.Second)
+			for _ = range ticker.C {
+				client.RefreshMetaData()
+			}
+		}()
 	}()
 }
 
-// Stop the client
 func (client *KafkaClient) Stop() {
-	// Stop the offset checker and the topic metdata refresh and request channel
-	client.brokerOffsetTicker.Stop()
-	client.importer.stop()
+	<-client.stopped
+	for _, opt := range client.ops {
+		opt.Stop()
+	}
 }
 
 // This function performs massively parallel OffsetRequests, which is better than Sarama's internal implementation,
@@ -232,12 +229,12 @@ func (client *KafkaClient) offsetFetchImport() {
 	//offset manager
 	for topic, consumers := range client.topic2Consumer {
 		for _, consumer := range consumers {
-			msg := &ConsumerFullOffset{
+			msg := &model.ConsumerFullOffset{
 				Cluster:      client.cluster,
 				Topic:        topic,
 				Group:        consumer,
 				Timestamp:    ts,
-				partitionMap: make(map[int32]LogOffset),
+				PartitionMap: make(map[int32]model.LogOffset),
 			}
 
 			manager, _ := sarama.NewOffsetManagerFromClient(consumer, client.client)
@@ -247,17 +244,19 @@ func (client *KafkaClient) offsetFetchImport() {
 				pmanager, _ := manager.ManagePartition(topic, parition)
 				offset, _ := pmanager.NextOffset()
 
-				logOffset := LogOffset{
+				logOffset := model.LogOffset{
 					Logsize: client.topicOffset[topic][parition],
 					Offset:  offset,
 				}
 				if logOffset.Logsize < logOffset.Offset && logOffset.Logsize != 0 {
 					logOffset.Offset = logOffset.Logsize
 				}
-				msg.partitionMap[parition] = logOffset
+				msg.PartitionMap[parition] = logOffset
 			}
-			if len(msg.partitionMap) > 0 {
-				client.importer.saveMsg(msg)
+			if len(msg.PartitionMap) > 0 {
+				for _, opt := range client.ops {
+					opt.SaveMessage(msg)
+				}
 			}
 		}
 	}

@@ -1,139 +1,125 @@
-package monitor
+package kafka
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/Shopify/sarama"
 	log "github.com/cihub/seelog"
-	client "github.com/influxdata/influxdb/client/v2"
+	"github.com/sundy-li/burrowx/config"
 	"github.com/sundy-li/burrowx/model"
 )
 
+var (
+	v0_10_2_1 = sarama.V0_10_2_0
+	v0_11_0_0 = sarama.V0_10_2_0
+)
+
 type KafkaOutput struct {
-	msgs chan *model.ConsumerFullOffset
+	msgs    chan *model.ConsumerFullOffset
+	stopped chan struct{}
 
-	cfg *KafkaConfig
+	Brokers string
+	Topic   string
+	Version string
 
-	threshold  int
-	maxTimeGap int64
-	Kafka      sarama.Client
-	stopped    chan struct{}
+	Sasl          config.Sasl
+	ClientProfile config.Profile
+
+	producer sarama.AsyncProducer
+	wg       sync.WaitGroup
+	ctx      context.Context
 }
 
-type KafkaConfig struct {
-	Hosts    string
-	Username string
-	Password string
-	Db       string
-}
-
-func NewImporter(configStr string) (i *KafkaOutput, err error) {
-	var cfg KafkaConfig
-
-	json.Unmarshal([]byte(configStr), &cfg)
-
-	i = &KafkaOutput{
-		msgs:       make(chan *model.ConsumerFullOffset, 1000),
-		threshold:  10,
-		maxTimeGap: 10,
-		stopped:    make(chan struct{}),
+func New(ctx context.Context, config []byte) (output *KafkaOutput, err error) {
+	output = &KafkaOutput{
+		ctx:     ctx,
+		msgs:    make(chan *model.ConsumerFullOffset, 1000),
+		stopped: make(chan struct{}),
 	}
-	// Create a new HTTPClient
-	c, err := client.NewHTTPClient(client.HTTPConfig{
-		Addr:     cfg.Hosts,
-		Username: cfg.Username,
-		Password: cfg.Password,
-	})
+	json.Unmarshal(config, output)
 	if err != nil {
 		return
 	}
-	i.cfg = &cfg
-	i.Kafka = c
+	cfg, err := BuildKafkaConfig(output.ClientProfile, output.Sasl, output.Version)
+	if err != nil {
+		return
+	}
+
+	output.producer, err = sarama.NewAsyncProducer(strings.Split(output.Brokers, ","), cfg)
+	if err != nil {
+		return
+	}
+
+	output.wg.Add(2)
+	go output.successWorker(output.producer.Successes())
+	go output.errorWorker(output.producer.Errors())
 	return
 }
 
-func (i KafkaOutput) Start() error {
+func (output *KafkaOutput) Start() error {
 	go func() {
-		bp, _ := client.NewBatchPoints(client.BatchPointsConfig{
-			Database:  i.cfg.Db,
-			Precision: "s",
-		})
-		lastCommit := time.Now().Unix()
-		for msg := range i.msgs {
-			tags := map[string]string{
-				"topic":          msg.Topic,
-				"consumer_group": msg.Group,
-				"cluster":        msg.Cluster,
-			}
+	FOR:
+		for {
+			select {
+			case msg := <-output.msgs:
+				for partition, entry := range msg.PartitionMap {
+					//offset is the sql keyword, so we use offsize
+					fields := map[string]interface{}{
+						"topic":          msg.Topic,
+						"consumer_group": msg.Group,
+						"cluster":        msg.Cluster,
 
-			for partition, entry := range msg.PartitionMap {
-				//offset is the sql keyword, so we use offsize
-				tags["partition"] = fmt.Sprintf("%d", partition)
+						"its":       time.Now().Unix(),
+						"partition": partition,
+						"logsize":   entry.Logsize,
+						"offsize":   entry.Offset,
+						"lag":       entry.Logsize - entry.Offset,
+					}
 
-				fields := map[string]interface{}{
-					"logsize": entry.Logsize,
-					"offsize": entry.Offset,
-					"lag":     entry.Logsize - entry.Offset,
-				}
-				if entry.Offset < 0 {
-					fields["lag"] = -1
-					continue
-				}
+					bs, _ := json.Marshal(fields)
 
-				tm := time.Unix(msg.Timestamp/1000, 0)
-				pt, err := client.NewPoint("consumer_metrics", tags, fields, tm)
-				if err != nil {
-					log.Error("error in add point ", err.Error())
-					continue
+					output.producer.Input() <- &sarama.ProducerMessage{
+						Topic: output.Topic,
+						Key:   sarama.ByteEncoder([]byte("kafka.offset|" + time.Now().String())),
+						Value: sarama.ByteEncoder(bs),
+					}
 				}
-				bp.AddPoint(pt)
-			}
-
-			if len(bp.Points()) > i.threshold || time.Now().Unix()-lastCommit >= i.maxTimeGap {
-				err := i.Kafka.Write(bp)
-				if err != nil {
-					log.Error("error in insert points ", err.Error())
-					continue
-				}
-				bp, _ = client.NewBatchPoints(client.BatchPointsConfig{
-					Database:  i.cfg.Db,
-					Precision: "s",
-				})
-				lastCommit = time.Now().Unix()
+			case <-output.ctx.Done():
+				close(output.stopped)
+				break FOR
 			}
 		}
-		i.stopped <- struct{}{}
 	}()
 
 	return nil
 }
 
-func (i KafkaOutput) SaveMsg(msg *model.ConsumerFullOffset) {
-	i.msgs <- msg
+func (output *KafkaOutput) SaveMessage(msg *model.ConsumerFullOffset) {
+	output.msgs <- msg
 }
 
-func (i KafkaOutput) Stop() error {
-	close(i.msgs)
-	<-i.stopped
+func (output *KafkaOutput) Stop() error {
+	close(output.msgs)
+	<-output.stopped
+	output.producer.AsyncClose()
+	output.wg.Wait()
 	return nil
 }
 
-// runCmd method is for influxb querys
-func (i KafkaOutput) runCmd(cmd string) (res []client.Result, err error) {
-	q := client.Query{
-		Command:  cmd,
-		Database: i.cfg.Db,
-	}
-	if response, err := i.Kafka.Query(q); err == nil {
-		if response.Error() != nil {
-			return res, response.Error()
-		}
-		res = response.Results
-	} else {
-		return res, err
-	}
-	return res, nil
+func (output *KafkaOutput) successWorker(ch <-chan *sarama.ProducerMessage) {
+	defer output.wg.Done()
+	for range ch {
 
+	}
+}
+
+func (output *KafkaOutput) errorWorker(ch <-chan *sarama.ProducerError) {
+	defer output.wg.Done()
+	for errMsg := range ch {
+		log.Error("send msg error" + errMsg.Error())
+	}
 }

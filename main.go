@@ -2,14 +2,13 @@ package main
 
 import (
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	. "github.com/sundy-li/burrowx/config"
-	mylog "github.com/sundy-li/burrowx/log"
 	"github.com/sundy-li/burrowx/monitor"
+	"github.com/wswz/go_commons/log"
 )
 
 var (
@@ -22,19 +21,21 @@ func init() {
 }
 func main() {
 	cfg := ReadConfig(cfgFile)
-	mylog.InitLogger(cfg.General.Logconfig)
 
-	log.Printf("burrowx started,using server config:%s, logfile cfg:%s\n", cfgFile, cfg.General.Logconfig)
-	log.Printf("You could press [Ctrl+c] to stop burrowx\n")
+	log.Infof("burrowx started,using server config:%s, logfile cfg:%s", cfgFile, cfg.General.Logconfig)
 
 	fetcher, err := monitor.NewFetcher(cfg)
 	if err != nil {
 		panic(err)
 	}
 	fetcher.Start()
+
+	log.Infof("You could press [Ctrl+c] to stop burrowx\n")
+
 	WaitForExitSign()
+	log.Info("signal catched,burrowx will be shutdown")
 	fetcher.Stop()
-	log.Printf("signal catched,burrowx will be shutdown, goodbye")
+	log.Info("goodbye")
 }
 
 func WaitForExitSign() {

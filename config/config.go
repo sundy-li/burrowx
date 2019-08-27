@@ -18,11 +18,8 @@ type Config struct {
 	Kafka map[string]*struct {
 		Brokers       string  `json:"brokers"`
 		ClientProfile Profile `json:"ClientProfile"`
-
-		Sasl struct {
-			Username string
-			Password string
-		}
+		Sasl          Sasl    `json:"sasl"`
+		Version       string  `json:"version"`
 	} `json:"kafka"`
 
 	Outputs []M `json:"outputs"`
@@ -38,6 +35,11 @@ type Profile struct {
 	TLSCAFilePath   string `json:"tlsCafilepath"`
 }
 
+type Sasl struct {
+	Username string
+	Password string
+}
+
 func ReadConfig(cfgFile string) *Config {
 	var cfg Config
 	f, err := os.OpenFile(cfgFile, os.O_RDONLY, 0660)
@@ -50,7 +52,7 @@ func ReadConfig(cfgFile string) *Config {
 }
 
 func (cfg *Config) Init() {
-
+	//init M
 }
 
 func errAndExit(err error) {

@@ -8,6 +8,7 @@ require (
 	github.com/cihub/seelog v0.0.0-20170130134532-f561c5e57575
 	github.com/influxdata/influxdb v0.0.0-20170614014315-0b4528b26de4
 	github.com/stretchr/testify v1.4.0 // indirect
+	github.com/wswz/go_commons v0.0.0-20180723103154-ef9bd45e685a
 	golang.org/x/sys v0.0.0-20190813064441-fde4db37ae7a // indirect
 	gopkg.in/jcmturner/goidentity.v3 v3.0.0 // indirect
 )
