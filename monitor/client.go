@@ -46,8 +46,8 @@ type BrokerTopicRequest struct {
 
 var (
 	// we may use a fixed interval
-	METRIC_FETCH_INTERVAL_SECOND = 10
-	META_UPDATE_INTERVAL_SECOND  = 60
+	MetricFetchInterval = 30
+	MetaUpdateInterval  = 60
 )
 
 func NewKafkaClient(cfg *config.Config, cluster string, ctx context.Context) (*KafkaClient, error) {
@@ -127,7 +127,7 @@ func (client *KafkaClient) Start() {
 		client.RefreshMetaData()
 		client.getOffsets()
 
-		client.brokerOffsetTicker = time.NewTicker(time.Duration(METRIC_FETCH_INTERVAL_SECOND) * time.Second)
+		client.brokerOffsetTicker = time.NewTicker(time.Duration(MetricFetchInterval) * time.Second)
 		go func() {
 		FOR:
 			for {
@@ -145,7 +145,7 @@ func (client *KafkaClient) Start() {
 
 		// Refresh metadata
 		go func() {
-			ticker := time.NewTicker(time.Duration(META_UPDATE_INTERVAL_SECOND) * time.Second)
+			ticker := time.NewTicker(time.Duration(MetaUpdateInterval) * time.Second)
 			for _ = range ticker.C {
 				client.RefreshMetaData()
 			}
@@ -225,7 +225,7 @@ func (client *KafkaClient) getOffsets() error {
 }
 
 func (client *KafkaClient) offsetFetchImport() {
-	var ts = time.Now().Unix() / int64(METRIC_FETCH_INTERVAL_SECOND) * int64(METRIC_FETCH_INTERVAL_SECOND) * 1000
+	var ts = time.Now().Unix() / int64(MetricFetchInterval) * int64(MetricFetchInterval) * 1000
 	//offset manager
 	for topic, consumers := range client.topic2Consumer {
 		for _, consumer := range consumers {

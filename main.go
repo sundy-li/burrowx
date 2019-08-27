@@ -17,6 +17,9 @@ var (
 
 func init() {
 	flag.StringVar(&cfgFile, "config", "config/server.json", "config file path")
+	flag.IntVar(&monitor.MetricFetchInterval, "fetch_duration", 20, "Metric Fetch Interval in seconds")
+	flag.IntVar(&monitor.MetaUpdateInterval, "meta_duration", 60, "Meta update Interval in seconds")
+
 	flag.Parse()
 }
 func main() {
