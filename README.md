@@ -1,3 +1,6 @@
+# WARNING: This repo is not maintained anymore, please use https://github.com/danielqsj/kafka_exporter
+
+
 ## burrowx - kafka offset lag monitor,stored by influxdb
 
 A simple, lightweight kafka offset monitor, currently metrics stored by influxdb. Motivated by   [Burrow](https://github.com/linkedin/Burrow), but much faster and cleaner and more stable. burrowx is good integration with influxdb and grafana.
